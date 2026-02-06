@@ -3,11 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import {
-  CornerDownLeftIcon,
-  MessageSquarePlusIcon,
-  SparklesIcon,
-} from "lucide-react"
+import { CornerDownLeftIcon, MessageSquarePlusIcon, SparklesIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -95,8 +91,7 @@ function computeMentionState(value: string, caret: number): MentionState | null 
 export function ChatClient() {
   const params = useSearchParams()
   const agentFromUrl = params.get("agent")
-  const initialAgentId =
-    (agentFromUrl && getAgentById(agentFromUrl)?.id) ?? AGENTS[0]?.id ?? "general"
+  const initialAgentId = (agentFromUrl && getAgentById(agentFromUrl)?.id) ?? AGENTS[0]?.id ?? "general"
 
   const [conversations, setConversations] = React.useState<Conversation[]>(() => {
     const id = uid()
@@ -204,9 +199,7 @@ export function ChatClient() {
   function setDefaultAgent(agentId: string) {
     if (!active) return
     setConversations((prev) =>
-      prev.map((c) =>
-        c.id === active.id ? { ...c, defaultAgentId: agentId, updatedAt: Date.now() } : c
-      )
+      prev.map((c) => (c.id === active.id ? { ...c, defaultAgentId: agentId, updatedAt: Date.now() } : c))
     )
   }
 
@@ -237,12 +230,7 @@ export function ChatClient() {
       prev.map((c) => {
         if (c.id !== active.id) return c
         const nextTitle = c.title === "新会话" ? makeTitleFromFirstUserMessage(content) : c.title
-        return {
-          ...c,
-          title: nextTitle,
-          updatedAt: Date.now(),
-          messages: [...c.messages, userMsg, assistantMsg],
-        }
+        return { ...c, title: nextTitle, updatedAt: Date.now(), messages: [...c.messages, userMsg, assistantMsg] }
       })
     )
 
@@ -337,16 +325,11 @@ export function ChatClient() {
                   <DropdownMenuLabel>默认智能体</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {AGENTS.map((a) => (
-                    <DropdownMenuItem
-                      key={a.id}
-                      onClick={() => setDefaultAgent(a.id)}
-                    >
+                    <DropdownMenuItem key={a.id} onClick={() => setDefaultAgent(a.id)}>
                       <div className="flex w-full items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{a.name}</span>
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {a.handle}
-                          </span>
+                          <span className="font-mono text-xs text-muted-foreground">{a.handle}</span>
                         </div>
                         {active?.defaultAgentId === a.id ? "✓" : ""}
                       </div>
@@ -359,11 +342,7 @@ export function ChatClient() {
 
           <CardContent className="px-0">
             <ScrollArea className="h-[420px]">
-              <div className="space-y-4 p-4">
-                {active?.messages.map((m) => (
-                  <MessageBubble key={m.id} m={m} />
-                ))}
-              </div>
+              <div className="space-y-4 p-4">{active?.messages.map((m) => <MessageBubble key={m.id} m={m} />)}</div>
             </ScrollArea>
 
             <Separator />
@@ -391,11 +370,7 @@ export function ChatClient() {
                       <div className="text-xs text-muted-foreground">
                         Enter 换行，Ctrl/⌘ + Enter 发送。可在文本中输入 @ 触发智能体选择。
                       </div>
-                      <Button
-                        onClick={send}
-                        disabled={!draft.trim()}
-                        className="shrink-0"
-                      >
+                      <Button onClick={send} disabled={!draft.trim()} className="shrink-0">
                         <CornerDownLeftIcon className="size-4" />
                         发送
                       </Button>
@@ -403,32 +378,20 @@ export function ChatClient() {
                   </div>
                 </PopoverAnchor>
 
-                <PopoverContent
-                  align="start"
-                  side="top"
-                  className="w-[360px] p-2"
-                >
+                <PopoverContent align="start" side="top" className="w-[360px] p-2">
                   <Command shouldFilter={false}>
                     <CommandList>
                       <CommandEmpty>没有匹配的智能体</CommandEmpty>
                       <CommandGroup heading="选择要 @ 的智能体">
                         {mentionCandidates.map((a) => (
-                          <CommandItem
-                            key={a.id}
-                            value={a.id}
-                            onSelect={() => applyMention(a.id)}
-                          >
+                          <CommandItem key={a.id} value={a.id} onSelect={() => applyMention(a.id)}>
                             <div className="flex w-full items-center justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-medium">
                                   {a.name}{" "}
-                                  <span className="font-mono text-xs text-muted-foreground">
-                                    {a.handle}
-                                  </span>
+                                  <span className="font-mono text-xs text-muted-foreground">{a.handle}</span>
                                 </div>
-                                <div className="truncate text-xs text-muted-foreground">
-                                  {a.description}
-                                </div>
+                                <div className="truncate text-xs text-muted-foreground">{a.description}</div>
                               </div>
                               <Badge variant="secondary" className="shrink-0">
                                 {a.tags[0] ?? "Agent"}
@@ -463,9 +426,7 @@ function MessageBubble({ m }: { m: ChatMessage }) {
       <div className={["max-w-[78%] space-y-1", isUser ? "items-end" : ""].join(" ")}>
         <div className={["text-xs text-muted-foreground", isUser ? "text-right" : ""].join(" ")}>
           {isUser ? "你" : agent?.name ?? "智能体"}
-          {!isUser && agent?.handle ? (
-            <span className="ml-2 font-mono">{agent.handle}</span>
-          ) : null}
+          {!isUser && agent?.handle ? <span className="ml-2 font-mono">{agent.handle}</span> : null}
         </div>
         <div
           className={[

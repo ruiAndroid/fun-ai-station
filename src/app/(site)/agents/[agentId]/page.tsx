@@ -26,19 +26,13 @@ export default function AgentDetailPage({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">{agent.name}</h1>
           <div className="flex items-center gap-2">
-            <div className="font-mono text-xs text-muted-foreground">
-              {agent.handle}
-            </div>
+            <div className="font-mono text-xs text-muted-foreground">{agent.handle}</div>
             <Button asChild size="sm">
-              <Link href={`/chat?agent=${encodeURIComponent(agent.id)}`}>
-                用它聊天
-              </Link>
+              <Link href={`/chat?agent=${encodeURIComponent(agent.id)}`}>用它聊天</Link>
             </Button>
           </div>
         </div>
-        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-          {agent.description}
-        </p>
+        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{agent.description}</p>
       </div>
 
       <Separator />
@@ -77,21 +71,17 @@ export default function AgentDetailPage({
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
           <div>
-            - 试试在聊天里输入：<span className="font-mono">@研发助手</span>{" "}
-            帮我生成一个 Next.js + FastAPI 的项目结构
+            - 试试在聊天里输入：<span className="font-mono">@研发助手</span> 帮我生成一个 Next.js + FastAPI
+            的项目结构
           </div>
           <div>
-            - 或者：<span className="font-mono">@产品经理</span> 给我写一个多智能体
-            平台的 PRD 大纲
+            - 或者：<span className="font-mono">@产品经理</span> 给我写一个多智能体平台的 PRD 大纲
           </div>
         </CardContent>
       </Card>
 
       <div>
-        <Link
-          href="/agents"
-          className="text-sm font-medium underline underline-offset-4"
-        >
+        <Link href="/agents" className="text-sm font-medium underline underline-offset-4">
           ← 返回 Agents
         </Link>
       </div>
