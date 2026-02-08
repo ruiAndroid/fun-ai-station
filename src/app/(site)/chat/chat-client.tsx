@@ -28,14 +28,24 @@ import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
-import { AGENTS, getAgentById } from "@/lib/agents"
+import { executeAgentServiceAgent } from "@/lib/agent-service"
+import { findAgentById, listAgents, type Agent } from "@/lib/agents"
+import {
+  createChatMessage,
+  createChatSession,
+  deleteChatSession,
+  listChatMessages,
+  listChatSessions,
+  updateChatSession,
+} from "@/lib/chat-api"
+import { clearAccessToken, getAccessToken } from "@/lib/auth-storage"
 
 type Role = "user" | "assistant"
 
 type ChatMessage = {
   id: string
   role: Role
-  agentId?: string
+  agentId?: number
   content: string
   createdAt: number
 }
@@ -43,9 +53,10 @@ type ChatMessage = {
 type Conversation = {
   id: string
   title: string
-  defaultAgentId: string
+  defaultAgentId: number | null
   messages: ChatMessage[]
   updatedAt: number
+  backendSessionId?: string
 }
 
 function uid() {
@@ -57,9 +68,9 @@ function uid() {
   )
 }
 
-function pickMentionAgentId(content: string) {
+function pickMentionAgentId(content: string, agents: Agent[]) {
   // 简单规则：取第一处命中的 @handle
-  for (const a of AGENTS) {
+  for (const a of agents) {
     if (content.includes(a.handle)) return a.id
   }
   return null
@@ -68,6 +79,11 @@ function pickMentionAgentId(content: string) {
 function makeTitleFromFirstUserMessage(content: string) {
   const t = content.trim().replace(/\s+/g, " ")
   return t.length > 18 ? `${t.slice(0, 18)}…` : t || "新会话"
+}
+
+function isAuthError(error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error)
+  return msg.includes("Could not validate credentials") || msg.includes("401")
 }
 
 type MentionState = {
@@ -91,7 +107,17 @@ function computeMentionState(value: string, caret: number): MentionState | null 
 export function ChatClient() {
   const params = useSearchParams()
   const agentFromUrl = params.get("agent")
-  const initialAgentId = (agentFromUrl && getAgentById(agentFromUrl)?.id) ?? AGENTS[0]?.id ?? "general"
+
+  const [agents, setAgents] = React.useState<Agent[]>([])
+  const [agentsHint, setAgentsHint] = React.useState<string | null>(null)
+  const [serviceError, setServiceError] = React.useState<string | null>(null)
+  const [sending, setSending] = React.useState(false)
+
+  const initialAgentId = React.useMemo(() => {
+    if (!agentFromUrl) return null
+    const n = Number(agentFromUrl)
+    return Number.isFinite(n) ? n : null
+  }, [agentFromUrl])
 
   const [conversations, setConversations] = React.useState<Conversation[]>(() => {
     const id = uid()
@@ -105,9 +131,9 @@ export function ChatClient() {
           {
             id: uid(),
             role: "assistant",
-            agentId: initialAgentId,
+            agentId: initialAgentId ?? undefined,
             content:
-              "欢迎来到 FunAiStation（前端 MVP）。你可以直接聊天，或在消息里输入 @智能体 来指定处理者。",
+              "欢迎来到 FunAiStation。你可以直接聊天，或在消息里输入 @智能体 来指定处理者。",
             createdAt: Date.now(),
           },
         ],
@@ -127,12 +153,120 @@ export function ChatClient() {
 
   const [draft, setDraft] = React.useState("")
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const messagesEndRef = React.useRef<HTMLDivElement | null>(null)
+  const messagesScrollRef = React.useRef<HTMLDivElement | null>(null)
   const [mention, setMention] = React.useState<MentionState | null>(null)
+  const [historyLoading, setHistoryLoading] = React.useState(false)
+  const [historyError, setHistoryError] = React.useState<string | null>(null)
+  const [sessionsLoaded, setSessionsLoaded] = React.useState(false)
+  const [creatingSession, setCreatingSession] = React.useState(false)
+  const [renamingId, setRenamingId] = React.useState<string | null>(null)
+  const [renameValue, setRenameValue] = React.useState("")
+
+  const loadAgents = React.useCallback(async () => {
+    try {
+      const data = await listAgents()
+      setAgents(data)
+      setAgentsHint(null)
+    } catch (e) {
+      setAgents([])
+      setAgentsHint(e instanceof Error ? e.message : String(e))
+    }
+  }, [])
+
+  React.useEffect(() => {
+    loadAgents()
+    window.addEventListener("auth:token", loadAgents)
+    return () => window.removeEventListener("auth:token", loadAgents)
+  }, [loadAgents])
+
+  React.useEffect(() => {
+    async function loadSessions() {
+      const token = getAccessToken()
+      if (!token || sessionsLoaded) return
+      try {
+        const sessions = await listChatSessions()
+        if (!sessions.length) {
+          setSessionsLoaded(true)
+          return
+        }
+        const mapped = sessions.map((s) => ({
+            id: uid(),
+            title: s.title || "新会话",
+            defaultAgentId: s.agent_id ?? null,
+            updatedAt: new Date(s.updated_at).getTime(),
+            backendSessionId: s.id,
+            messages: [],
+        }))
+        setConversations(mapped)
+        setActiveId(mapped[0]?.id ?? "")
+      } catch (e) {
+        if (isAuthError(e)) {
+          clearAccessToken()
+          setHistoryError(null)
+          return
+        }
+        setHistoryError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setSessionsLoaded(true)
+      }
+    }
+    loadSessions()
+  }, [sessionsLoaded])
+
+  React.useEffect(() => {
+    async function loadHistory() {
+      const token = getAccessToken()
+      if (!token) return
+      if (!active?.backendSessionId) return
+      setHistoryLoading(true)
+      setHistoryError(null)
+      try {
+        const messages = await listChatMessages(active.backendSessionId)
+        const mapped: ChatMessage[] = messages.map((m) => ({
+          id: m.id,
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: m.content,
+          createdAt: new Date(m.created_at).getTime(),
+        }))
+        setConversations((prev) =>
+          prev.map((c) => (c.id === active.id ? { ...c, messages: mapped } : c))
+        )
+      } catch (e) {
+        if (isAuthError(e)) {
+          clearAccessToken()
+          setHistoryError(null)
+          return
+        }
+        setHistoryError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setHistoryLoading(false)
+      }
+    }
+    loadHistory()
+  }, [active?.backendSessionId, active?.id])
+
+  React.useEffect(() => {
+    // 如果当前会话没有默认智能体，且后端返回了 Agents，则默认选第一个
+    if (!agents.length) return
+    setConversations((prev) =>
+      prev.map((c, idx) => (idx === 0 && !c.defaultAgentId ? { ...c, defaultAgentId: agents[0].id } : c))
+    )
+  }, [agents])
+
+  React.useEffect(() => {
+    const viewport = messagesScrollRef.current?.querySelector(
+      "[data-radix-scroll-area-viewport]"
+    ) as HTMLElement | null
+    if (!viewport) return
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" })
+  }, [active?.id, active?.messages.length, historyLoading])
 
   const mentionCandidates = React.useMemo(() => {
     const q = (mention?.query ?? "").trim().toLowerCase()
     if (!mention?.open) return []
-    return AGENTS.filter((a) => {
+    return agents
+      .filter((a) => {
       if (!q) return true
       return (
         a.name.toLowerCase().includes(q) ||
@@ -140,8 +274,9 @@ export function ChatClient() {
         a.tags.some((t) => t.toLowerCase().includes(q)) ||
         a.capabilities.some((c) => c.toLowerCase().includes(q))
       )
-    }).slice(0, 8)
-  }, [mention])
+    })
+      .slice(0, 8)
+  }, [mention, agents])
 
   function updateMentionFromCaret(nextValue: string) {
     const el = textareaRef.current
@@ -154,8 +289,8 @@ export function ChatClient() {
     queueMicrotask(() => updateMentionFromCaret(next))
   }
 
-  function applyMention(agentId: string) {
-    const a = getAgentById(agentId)
+  function applyMention(agentId: number) {
+    const a = findAgentById(agents, agentId)
     if (!a || !mention) return
     const insert = a.handle + " "
     const next = draft.slice(0, mention.start) + insert + draft.slice(mention.end)
@@ -171,9 +306,9 @@ export function ChatClient() {
     })
   }
 
-  function createConversation(withAgentId?: string) {
+  async function createConversation(withAgentId?: number | null) {
     const id = uid()
-    const defaultAgentId = withAgentId ?? AGENTS[0]?.id ?? "general"
+    const defaultAgentId = withAgentId ?? agents[0]?.id ?? null
     const c: Conversation = {
       id,
       title: "新会话",
@@ -183,9 +318,9 @@ export function ChatClient() {
         {
           id: uid(),
           role: "assistant",
-          agentId: defaultAgentId,
+          agentId: defaultAgentId ?? undefined,
           content:
-            "已创建新会话。提示：输入 @研发助手 / @数据分析 等，可将本条消息定向给对应智能体。",
+            "已创建新会话。提示：输入 @智能体 来将本条消息定向给对应智能体。",
           createdAt: Date.now(),
         },
       ],
@@ -194,55 +329,221 @@ export function ChatClient() {
     setActiveId(id)
     setDraft("")
     setMention(null)
+
+    const token = getAccessToken()
+    if (!token || defaultAgentId == null) return
+
+    setCreatingSession(true)
+    try {
+      const session = await createChatSession({
+        agent_id: defaultAgentId,
+        title: c.title,
+      })
+      setConversations((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, backendSessionId: session.id } : item))
+      )
+    } catch (e) {
+      if (isAuthError(e)) {
+        clearAccessToken()
+        return
+      }
+    } finally {
+      setCreatingSession(false)
+    }
   }
 
-  function setDefaultAgent(agentId: string) {
+  async function renameConversation() {
+    if (!renamingId) return
+    const next = renameValue.trim()
+    if (!next) return
+    const conv = conversations.find((c) => c.id === renamingId)
+    setRenamingId(null)
+    setRenameValue("")
+    if (!conv) return
+    setConversations((prev) => prev.map((c) => (c.id === conv.id ? { ...c, title: next } : c)))
+    if (conv.backendSessionId) {
+      try {
+        await updateChatSession(conv.backendSessionId, { title: next })
+      } catch (e) {
+        if (isAuthError(e)) {
+          clearAccessToken()
+        }
+        // ignore remote errors for now
+      }
+    }
+  }
+
+  async function removeConversation(convId: string) {
+    let backendSessionId: string | undefined
+    setConversations((prev) => {
+      const conv = prev.find((c) => c.id === convId)
+      backendSessionId = conv?.backendSessionId
+      const next = prev.filter((c) => c.id !== convId)
+      if (activeId === convId) {
+        setActiveId(next[0]?.id ?? "")
+      }
+      return next
+    })
+    if (backendSessionId) {
+      try {
+        await deleteChatSession(backendSessionId)
+      } catch (e) {
+        if (isAuthError(e)) {
+          clearAccessToken()
+        }
+        // ignore remote errors for now
+      }
+    }
+  }
+
+  function setDefaultAgent(agentId: number) {
     if (!active) return
     setConversations((prev) =>
       prev.map((c) => (c.id === active.id ? { ...c, defaultAgentId: agentId, updatedAt: Date.now() } : c))
     )
   }
 
-  function send() {
+  async function send() {
     if (!active) return
     const content = draft.trim()
     if (!content) return
 
-    const targetAgentId = pickMentionAgentId(content) ?? active.defaultAgentId
+    const targetAgentId =
+      pickMentionAgentId(content, agents) ?? active.defaultAgentId ?? agents[0]?.id ?? null
+    const targetAgent = findAgentById(agents, targetAgentId)
+    if (!targetAgent) {
+      const assistantMsg: ChatMessage = {
+        id: uid(),
+        role: "assistant",
+        content: "当前没有可用智能体，请稍后再试。",
+        createdAt: Date.now(),
+      }
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== active.id) return c
+          return { ...c, updatedAt: Date.now(), messages: [...c.messages, assistantMsg] }
+        })
+      )
+      return
+    }
 
     const userMsg: ChatMessage = {
       id: uid(),
       role: "user",
       content,
-      // eslint-disable-next-line react-hooks/purity
       createdAt: Date.now(),
     }
-    const assistantMsg: ChatMessage = {
-      id: uid(),
-      role: "assistant",
-      agentId: targetAgentId,
-      content: `（MVP 占位回复）我将由 ${getAgentById(targetAgentId)?.name ?? "智能体"} 处理这条消息。\n\n下一步：我们会接入后端流式接口，把真实生成内容逐 token 输出到这里。`,
-      // eslint-disable-next-line react-hooks/purity
-      createdAt: Date.now(),
-    }
-
+    const nextTitle = active.title === "新会话" ? makeTitleFromFirstUserMessage(content) : active.title
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id !== active.id) return c
-        const nextTitle = c.title === "新会话" ? makeTitleFromFirstUserMessage(content) : c.title
-        return { ...c, title: nextTitle, updatedAt: Date.now(), messages: [...c.messages, userMsg, assistantMsg] }
+        return { ...c, title: nextTitle, updatedAt: Date.now(), messages: [...c.messages, userMsg] }
       })
     )
 
     setDraft("")
     setMention(null)
     queueMicrotask(() => textareaRef.current?.focus())
+
+    setSending(true)
+    const pendingId = uid()
+    const pendingMsg: ChatMessage = {
+      id: pendingId,
+      role: "assistant",
+      agentId: targetAgentId ?? undefined,
+      content: `正在调用智能体 ${targetAgent.name} …`,
+      createdAt: Date.now(),
+    }
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== active.id) return c
+        return { ...c, updatedAt: Date.now(), messages: [...c.messages, pendingMsg] }
+      })
+    )
+    try {
+      const res = await executeAgentServiceAgent(targetAgent.code || targetAgent.name, content, {})
+      const assistantMsg: ChatMessage = {
+        id: pendingId,
+        role: "assistant",
+        agentId: targetAgentId ?? undefined,
+        content: res.output ?? "",
+        createdAt: Date.now(),
+      }
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== active.id) return c
+          return {
+            ...c,
+            updatedAt: Date.now(),
+            messages: c.messages.map((m) => (m.id === pendingId ? assistantMsg : m)),
+          }
+        })
+      )
+
+      // Persist to backend if user is authenticated and an agent_id is available.
+      if (targetAgentId != null) {
+        let backendSessionId = active.backendSessionId
+        if (!backendSessionId) {
+          try {
+            const session = await createChatSession({
+              agent_id: targetAgentId,
+              title: nextTitle,
+            })
+            backendSessionId = session.id
+            setConversations((prev) =>
+              prev.map((c) => (c.id === active.id ? { ...c, backendSessionId } : c))
+            )
+          } catch (e) {
+            if (isAuthError(e)) {
+              clearAccessToken()
+              return
+            }
+            setServiceError(`保存会话失败：${e instanceof Error ? e.message : String(e)}`)
+            return
+          }
+        }
+
+        try {
+          await createChatMessage(backendSessionId, { role: "user", content })
+          await createChatMessage(backendSessionId, {
+            role: "assistant",
+            content: assistantMsg.content,
+          })
+        } catch (e) {
+          if (isAuthError(e)) {
+            clearAccessToken()
+            return
+          }
+          setServiceError(`保存消息失败：${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    } catch (e) {
+      const assistantMsg: ChatMessage = {
+        id: pendingId,
+        role: "assistant",
+        agentId: targetAgentId ?? undefined,
+        content: `Agent Service 调用失败：${e instanceof Error ? e.message : String(e)}`,
+        createdAt: Date.now(),
+      }
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== active.id) return c
+          return {
+            ...c,
+            updatedAt: Date.now(),
+            messages: c.messages.map((m) => (m.id === pendingId ? assistantMsg : m)),
+          }
+        })
+      )
+    } finally {
+      setSending(false)
+    }
   }
 
-  const defaultAgent = getAgentById(active?.defaultAgentId ?? initialAgentId)
+  const defaultAgent = findAgentById(agents, active?.defaultAgentId ?? initialAgentId)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-2">
           <div className="text-xs text-muted-foreground">FunAiStation</div>
@@ -250,17 +551,28 @@ export function ChatClient() {
           <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
             多智能体对话 MVP：会话列表、消息区、默认智能体选择、以及输入框里的 @ 提及选择。
           </p>
+          {agentsHint ? (
+            <div className="rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">
+              Agents 未就绪：{agentsHint}
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" asChild>
             <Link href="/agents">浏览 Agents</Link>
           </Button>
-          <Button onClick={() => createConversation(active?.defaultAgentId)}>
+          <Button onClick={() => createConversation(active?.defaultAgentId)} disabled={creatingSession}>
             <MessageSquarePlusIcon className="size-4" />
-            新会话
+            {creatingSession ? "创建中…" : "新会话"}
           </Button>
         </div>
       </div>
+
+      {serviceError ? (
+        <div className="fixed right-6 top-20 z-50 max-w-[420px] rounded-md border bg-muted/95 p-3 text-sm text-muted-foreground shadow">
+          Agent Service 错误：{serviceError}
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
         <Card className="py-0">
@@ -269,33 +581,76 @@ export function ChatClient() {
           </CardHeader>
           <CardContent className="px-0">
             <ScrollArea className="h-[520px]">
-              <div className="p-2">
+              <div className="p-2 pr-6">
                 {conversations
                   .slice()
                   .sort((a, b) => b.updatedAt - a.updatedAt)
                   .map((c) => {
                     const isActive = c.id === active?.id
-                    const a = getAgentById(c.defaultAgentId)
+                    const a = findAgentById(agents, c.defaultAgentId)
                     return (
-                      <button
+                      <div
                         key={c.id}
-                        type="button"
-                        onClick={() => setActiveId(c.id)}
                         className={[
-                          "w-full rounded-lg px-3 py-2 text-left transition-colors",
+                          "w-full rounded-lg px-3 py-2 text-left transition-colors min-w-0 overflow-hidden",
                           isActive ? "bg-accent" : "hover:bg-accent/60",
                         ].join(" ")}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="truncate text-sm font-medium">{c.title}</div>
+                        <div className="flex min-w-0 items-center justify-between gap-2">
+                          {renamingId === c.id ? (
+                            <input
+                              className="h-7 w-full rounded-md border bg-background px-2 text-sm"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onBlur={renameConversation}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") renameConversation()
+                                if (e.key === "Escape") {
+                                  setRenamingId(null)
+                                  setRenameValue("")
+                                }
+                              }}
+                              autoFocus
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className="flex-1 truncate text-left text-sm font-medium"
+                              onClick={() => setActiveId(c.id)}
+                            >
+                              {c.title}
+                            </button>
+                          )}
                           <Badge variant="secondary" className="shrink-0">
                             {a?.name ?? "—"}
                           </Badge>
                         </div>
-                        <div className="mt-1 truncate text-xs text-muted-foreground">
-                          {c.messages.at(-1)?.content ?? ""}
+                        <div className="mt-1 flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <div className="min-w-0 flex-1 truncate">{c.messages.at(-1)?.content ?? ""}</div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <button
+                              type="button"
+                              className="hover:text-foreground"
+                              onClick={() => {
+                                setRenamingId(c.id)
+                                setRenameValue(c.title)
+                              }}
+                            >
+                              重命名
+                            </button>
+                            <button
+                              type="button"
+                              className="text-destructive hover:text-destructive/80"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                removeConversation(c.id)
+                              }}
+                            >
+                              删除
+                            </button>
+                          </div>
                         </div>
-                      </button>
+                      </div>
                     )
                   })}
               </div>
@@ -316,7 +671,7 @@ export function ChatClient() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" disabled={!agents.length}>
                     <SparklesIcon className="size-4" />
                     选择默认智能体
                   </Button>
@@ -324,25 +679,40 @@ export function ChatClient() {
                 <DropdownMenuContent align="end" className="w-64">
                   <DropdownMenuLabel>默认智能体</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {AGENTS.map((a) => (
-                    <DropdownMenuItem key={a.id} onClick={() => setDefaultAgent(a.id)}>
-                      <div className="flex w-full items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{a.name}</span>
-                          <span className="font-mono text-xs text-muted-foreground">{a.handle}</span>
+                  {!agents.length ? (
+                    <DropdownMenuItem disabled>暂无可用 Agents</DropdownMenuItem>
+                  ) : (
+                    agents.map((a) => (
+                      <DropdownMenuItem key={a.id} onClick={() => setDefaultAgent(a.id)}>
+                        <div className="flex w-full items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{a.name}</span>
+                            <span className="font-mono text-xs text-muted-foreground">{a.handle}</span>
+                          </div>
+                          {active?.defaultAgentId === a.id ? "✓" : ""}
                         </div>
-                        {active?.defaultAgentId === a.id ? "✓" : ""}
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
+                      </DropdownMenuItem>
+                    ))
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
           </CardHeader>
 
           <CardContent className="px-0">
-            <ScrollArea className="h-[420px]">
-              <div className="space-y-4 p-4">{active?.messages.map((m) => <MessageBubble key={m.id} m={m} />)}</div>
+            <ScrollArea className="h-[420px]" ref={messagesScrollRef}>
+              <div className="space-y-4 p-4">
+                {historyLoading ? (
+                  <div className="text-xs text-muted-foreground">加载历史消息中…</div>
+                ) : null}
+                {historyError ? (
+                  <div className="text-xs text-muted-foreground">历史消息加载失败：{historyError}</div>
+                ) : null}
+                {active?.messages.map((m) => (
+                  <MessageBubble key={m.id} m={m} agents={agents} />
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
             </ScrollArea>
 
             <Separator />
@@ -363,16 +733,19 @@ export function ChatClient() {
                           send()
                         }
                       }}
-                      placeholder="输入消息，试试 @研发助手 ..."
+                      placeholder="输入消息，试试 @智能体 ..."
                       className="min-h-[88px] resize-none"
                     />
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-xs text-muted-foreground">
+                        使用 @ 选择智能体（数据来自 Agent Service）
+                      </div>
+                      <div className="text-xs text-muted-foreground">
                         Enter 换行，Ctrl/⌘ + Enter 发送。可在文本中输入 @ 触发智能体选择。
                       </div>
-                      <Button onClick={send} disabled={!draft.trim()} className="shrink-0">
+                      <Button onClick={send} disabled={!draft.trim() || sending} className="shrink-0">
                         <CornerDownLeftIcon className="size-4" />
-                        发送
+                        {sending ? "发送中…" : "发送"}
                       </Button>
                     </div>
                   </div>
@@ -404,6 +777,7 @@ export function ChatClient() {
                   </Command>
                 </PopoverContent>
               </Popover>
+
             </div>
           </CardContent>
         </Card>
@@ -412,9 +786,9 @@ export function ChatClient() {
   )
 }
 
-function MessageBubble({ m }: { m: ChatMessage }) {
+function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
   const isUser = m.role === "user"
-  const agent = m.agentId ? getAgentById(m.agentId) : null
+  const agent = m.agentId ? findAgentById(agents, m.agentId) : null
   return (
     <div className={["flex gap-3", isUser ? "justify-end" : "justify-start"].join(" ")}>
       {!isUser ? (
