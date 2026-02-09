@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/srv/fun-ai-station/fun-agent-service
+WorkingDirectory=/opt/fun-agent-service
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=2
