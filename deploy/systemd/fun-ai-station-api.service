@@ -1,0 +1,17 @@
+[Unit]
+Description=fun-ai-station-api (FastAPI)
+After=network.target mysqld.service fun-agent-service.service
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/fun-ai-station/fun-ai-station-api
+ExecStart=/srv/fun-ai-station/fun-ai-station-api/.venv/bin/gunicorn -k uvicorn.workers.UvicornWorker -w 2 -b 127.0.0.1:8001 src.main:app
+Restart=always
+RestartSec=2
+
+# 不依赖 systemd 环境变量：后端会自动读取 WorkingDirectory 下的：
+#   fun-ai-station-api/.env
+
+[Install]
+WantedBy=multi-user.target
+

@@ -40,6 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-#软连接
-fun-agent-service
-fun-ai-station-api
+# NOTE:
+# 不要忽略真实项目目录（否则会导致目录内的新文件无法被 git 跟踪）。
+# 如果你之前误提交了“软链接文件本体”，建议用 `git rm --cached <path>` 并把“具体软链接路径”加入忽略。
