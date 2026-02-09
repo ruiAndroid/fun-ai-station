@@ -1,6 +1,9 @@
 import { getAccessToken } from "@/lib/auth-storage"
 
-const DEFAULT_BASE_URL = "http://localhost:8001"
+// Default to same-origin reverse proxy. In production, Nginx should proxy:
+//   /api/* -> http://127.0.0.1:8001/*
+// This avoids accidentally calling the user's own machine via "localhost".
+const DEFAULT_BASE_URL = "/api"
 
 export function getApiBaseUrl() {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_BASE_URL
