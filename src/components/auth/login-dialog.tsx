@@ -73,7 +73,16 @@ export function LoginDialog() {
     refreshMe()
     const onToken = () => refreshMe()
     window.addEventListener("auth:token", onToken)
-    return () => window.removeEventListener("auth:token", onToken)
+    const onAuthRequired = () => {
+      setMode("login")
+      setError(null)
+      setOpen(true)
+    }
+    window.addEventListener("auth:required", onAuthRequired)
+    return () => {
+      window.removeEventListener("auth:token", onToken)
+      window.removeEventListener("auth:required", onAuthRequired)
+    }
   }, [])
 
   async function login() {

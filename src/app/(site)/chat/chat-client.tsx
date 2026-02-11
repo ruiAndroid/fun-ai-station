@@ -180,6 +180,14 @@ export function ChatClient() {
     return () => window.removeEventListener("auth:token", loadAgents)
   }, [loadAgents])
 
+  // Require login when entering chat
+  React.useEffect(() => {
+    const token = getAccessToken()
+    if (!token) {
+      window.dispatchEvent(new Event("auth:required"))
+    }
+  }, [])
+
   React.useEffect(() => {
     async function loadSessions() {
       const token = getAccessToken()
@@ -203,6 +211,7 @@ export function ChatClient() {
       } catch (e) {
         if (isAuthError(e)) {
           clearAccessToken()
+          window.dispatchEvent(new Event("auth:required"))
           setHistoryError(null)
           return
         }
@@ -235,6 +244,7 @@ export function ChatClient() {
       } catch (e) {
         if (isAuthError(e)) {
           clearAccessToken()
+          window.dispatchEvent(new Event("auth:required"))
           setHistoryError(null)
           return
         }

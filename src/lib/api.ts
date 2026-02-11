@@ -1,4 +1,4 @@
-import { getAccessToken } from "@/lib/auth-storage"
+import { clearAccessToken, getAccessToken } from "@/lib/auth-storage"
 
 // Default to same-origin reverse proxy. In production, Nginx should proxy:
 //   /api/* -> http://127.0.0.1:8001/*
@@ -50,6 +50,11 @@ export async function apiFetch<T>(
   const text = await res.text()
 
   if (!res.ok) {
+    if (res.status === 401 && typeof window !== "undefined") {
+      // Token missing/expired: clear and prompt login globally.
+      clearAccessToken()
+      window.dispatchEvent(new Event("auth:required"))
+    }
     const msg = getErrorMessage(res, text)
     throw new Error(msg)
   }

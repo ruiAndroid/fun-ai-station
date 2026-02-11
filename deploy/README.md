@@ -48,3 +48,43 @@ Next.js 的 `NEXT_PUBLIC_*` 变量是在 **build 时注入** 的，建议：
 - unit 文件里 **不写** `Environment=...`
 - 运行目录固定，从而让各服务读取项目内的配置文件
 
+### 4) Openclaw 消息转发到本项目 API（Webhook）
+
+当 openclaw 部署在另一台服务器，并接收到企业微信/其他渠道的消息时，推荐由 openclaw **HTTP POST 转发**
+到本项目 API 的 webhook：
+
+- 转发地址：`http://<你的公网域名或IP>/api/webhooks/openclaw`
+
+#### 鉴权（必需）
+
+在 `fun-ai-station-api/configs/fun-ai-station-api.env` 配置：
+
+- `OPENCLAW_WEBHOOK_SECRET`：转发签名密钥（务必改成强随机字符串）
+- `OPENCLAW_MAX_SKEW_SECONDS`：允许的时间戳偏移（默认 300 秒）
+- `OPENCLAW_DEFAULT_AGENT`：未指定 agent 时的默认智能体（默认 `attendance`）
+
+openclaw 发请求时需要带上请求头：
+
+- `x-openclaw-timestamp`: unix 秒级时间戳（例如 `1739070000`）
+- `x-openclaw-signature`: hex(hmac_sha256(secret, "{ts}.{raw_body_bytes}"))
+
+其中待签名的消息是：把 `timestamp`、一个点号 `.`、以及 **原始 HTTP body 字节** 直接拼接后做 HMAC-SHA256。
+
+#### 请求体（建议）
+
+建议 openclaw 至少传这些字段（其余字段可自由扩展）：
+
+```json
+{
+  "event_id": "unique-message-id",
+  "agent": "attendance",
+  "text": "用户发来的消息内容",
+  "context": {
+    "channel": "wecom",
+    "from": "user_id"
+  }
+}
+```
+
+如果不传 `agent`，API 会使用 `OPENCLAW_DEFAULT_AGENT`。
+
