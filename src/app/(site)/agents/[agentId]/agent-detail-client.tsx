@@ -111,9 +111,6 @@ export function AgentDetailClient({ agentId }: { agentId: number }) {
           <h1 className="text-2xl font-semibold tracking-tight">{agent.name}</h1>
           <div className="flex items-center gap-2">
             <div className="font-mono text-xs text-muted-foreground">{agent.handle}</div>
-            <Button asChild size="sm">
-              <Link href={`/chat?agent=${encodeURIComponent(String(agent.id))}`}>用它聊天</Link>
-            </Button>
           </div>
         </div>
         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{agent.description}</p>

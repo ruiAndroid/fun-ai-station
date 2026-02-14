@@ -72,19 +72,40 @@ type MentionHit = { agent: Agent; start: number; end: number }
 
 function findMentionHits(content: string, agents: Agent[]): MentionHit[] {
   const hits: MentionHit[] = []
-  for (const a of agents) {
-    if (!a.handle) continue
-    let idx = 0
-    while (idx < content.length) {
-      const at = content.indexOf(a.handle, idx)
-      if (at < 0) break
-      hits.push({ agent: a, start: at, end: at + a.handle.length })
-      idx = at + a.handle.length
+
+  const normalize = (s: string) => s.trim().toLowerCase()
+  const stripAt = (s: string) => (s.startsWith("@") ? s.slice(1) : s)
+  const stripTailPunct = (s: string) =>
+    s.replace(/[，,。.!！?？:：;；、)\]）】》]+$/g, "")
+
+  function matchAgent(tokenRaw: string) {
+    const token = stripTailPunct(tokenRaw)
+    const t = normalize(stripAt(token))
+    if (!t) return null
+    for (const a of agents) {
+      const code = normalize(a.code || "")
+      const name = normalize(a.name || "")
+      const handleNoAt = normalize(stripAt(a.handle || ""))
+      if (t === code || t === name || t === handleNoAt) return a
     }
+    return null
   }
-  // sort by appearance
+
+  // Parse all @xxx occurrences. Only treat as mention if at word boundary (start or whitespace).
+  const re = /@([^\s@]+)/g
+  for (const m of content.matchAll(re)) {
+    const idx = m.index ?? -1
+    if (idx < 0) continue
+    if (idx > 0 && !/\s/.test(content[idx - 1]!)) continue
+    const tokenRaw = m[1] ?? ""
+    const agent = matchAgent(tokenRaw)
+    if (!agent) continue
+    hits.push({ agent, start: idx, end: idx + 1 + tokenRaw.length })
+  }
+
   hits.sort((x, y) => x.start - y.start || y.end - x.end)
-  // de-overlap (keep earliest / longest)
+
+  // de-overlap
   const out: MentionHit[] = []
   let lastEnd = -1
   for (const h of hits) {
@@ -681,20 +702,32 @@ export function ChatClient() {
           <CardContent className="px-0">
             <div className="h-[520px] overflow-y-auto">
               <div className="p-2">
-                {conversations
-                  .slice()
-                  .sort((a, b) => b.updatedAt - a.updatedAt)
-                  .map((c) => {
-                    const isActive = c.id === active?.id
-                    const a = findAgentById(agents, c.defaultAgentId)
-                    return (
-                      <div
-                        key={c.id}
-                        className={[
-                          "relative w-full rounded-lg px-3 py-2 text-left transition-colors min-w-0",
-                          isActive ? "bg-accent" : "hover:bg-accent/60",
-                        ].join(" ")}
-                      >
+                <div className="space-y-3">
+                  {conversations
+                    .slice()
+                    .sort((a, b) => b.updatedAt - a.updatedAt)
+                    .map((c) => {
+                      const isActive = c.id === active?.id
+                      const a = findAgentById(agents, c.defaultAgentId)
+                      return (
+                        <div
+                          key={c.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => {
+                            if (renamingId === c.id) return
+                            setActiveId(c.id)
+                          }}
+                          onKeyDown={(e) => {
+                            if (renamingId === c.id) return
+                            if (e.key === "Enter" || e.key === " ") setActiveId(c.id)
+                          }}
+                          className={[
+                            "relative w-full cursor-pointer select-none rounded-lg px-3 py-4 text-left transition-colors min-w-0",
+                            "outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                            isActive ? "bg-accent" : "hover:bg-accent/60",
+                          ].join(" ")}
+                        >
                         <div className="flex min-w-0 items-center justify-between gap-2">
                           {renamingId === c.id ? (
                             <input
@@ -712,13 +745,9 @@ export function ChatClient() {
                               autoFocus
                             />
                           ) : (
-                            <button
-                              type="button"
-                              className="flex-1 truncate text-left text-sm font-medium"
-                              onClick={() => setActiveId(c.id)}
-                            >
+                            <div className="flex-1 truncate text-left text-sm font-medium">
                               {c.title}
-                            </button>
+                            </div>
                           )}
                           <Badge variant="secondary" className="shrink-0">
                             {a?.name ?? "—"}
@@ -732,7 +761,8 @@ export function ChatClient() {
                             <button
                               type="button"
                               className="hover:text-foreground"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation()
                                 setRenamingId(c.id)
                                 setRenameValue(c.title)
                               }}
@@ -754,6 +784,7 @@ export function ChatClient() {
                       </div>
                     )
                   })}
+                </div>
               </div>
             </div>
           </CardContent>
