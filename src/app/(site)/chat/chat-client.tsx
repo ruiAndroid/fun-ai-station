@@ -68,12 +68,70 @@ function uid() {
   )
 }
 
-function pickMentionAgentId(content: string, agents: Agent[]) {
-  // 简单规则：取第一处命中的 @handle
+type MentionHit = { agent: Agent; start: number; end: number }
+
+function findMentionHits(content: string, agents: Agent[]): MentionHit[] {
+  const hits: MentionHit[] = []
   for (const a of agents) {
-    if (content.includes(a.handle)) return a.id
+    if (!a.handle) continue
+    let idx = 0
+    while (idx < content.length) {
+      const at = content.indexOf(a.handle, idx)
+      if (at < 0) break
+      hits.push({ agent: a, start: at, end: at + a.handle.length })
+      idx = at + a.handle.length
+    }
   }
-  return null
+  // sort by appearance
+  hits.sort((x, y) => x.start - y.start || y.end - x.end)
+  // de-overlap (keep earliest / longest)
+  const out: MentionHit[] = []
+  let lastEnd = -1
+  for (const h of hits) {
+    if (h.start < lastEnd) continue
+    out.push(h)
+    lastEnd = h.end
+  }
+  return out
+}
+
+function removeMentions(content: string, hits: MentionHit[]) {
+  if (!hits.length) return content
+  let out = ""
+  let last = 0
+  for (const h of hits) {
+    out += content.slice(last, h.start)
+    last = h.end
+  }
+  out += content.slice(last)
+  return out.replace(/\s+/g, " ").trim()
+}
+
+function buildDispatchPlan(
+  content: string,
+  agents: Agent[],
+  fallbackAgentId: number | null | undefined
+): { items: { agent: Agent; text: string }[]; sessionAgentId: number | null } {
+  const hits = findMentionHits(content, agents)
+  const cleaned = removeMentions(content, hits)
+
+  if (!hits.length) {
+    const targetId = fallbackAgentId ?? agents[0]?.id ?? null
+    const target = findAgentById(agents, targetId)
+    if (!target) return { items: [], sessionAgentId: null }
+    return { items: [{ agent: target, text: content }], sessionAgentId: target.id }
+  }
+
+  const items: { agent: Agent; text: string }[] = []
+  for (let i = 0; i < hits.length; i++) {
+    const cur = hits[i]
+    const next = hits[i + 1]
+    const seg = content.slice(cur.end, next?.start ?? content.length).trim()
+    // If user didn't write segment content, fall back to cleaned message
+    items.push({ agent: cur.agent, text: seg || cleaned || content })
+  }
+  // session agent id: pick first mentioned agent
+  return { items, sessionAgentId: items[0]?.agent.id ?? null }
 }
 
 function makeTitleFromFirstUserMessage(content: string) {
@@ -418,10 +476,10 @@ export function ChatClient() {
     const content = draft.trim()
     if (!content) return
 
-    const targetAgentId =
-      pickMentionAgentId(content, agents) ?? active.defaultAgentId ?? agents[0]?.id ?? null
-    const targetAgent = findAgentById(agents, targetAgentId)
-    if (!targetAgent) {
+    const plan = buildDispatchPlan(content, agents, active.defaultAgentId ?? agents[0]?.id ?? null)
+    const items = plan.items
+    const sessionAgentId = plan.sessionAgentId
+    if (!items.length) {
       const assistantMsg: ChatMessage = {
         id: uid(),
         role: "assistant",
@@ -460,8 +518,11 @@ export function ChatClient() {
     const pendingMsg: ChatMessage = {
       id: pendingId,
       role: "assistant",
-      agentId: targetAgentId ?? undefined,
-      content: `正在调用智能体 ${targetAgent.name} …`,
+      agentId: items.length === 1 ? items[0]!.agent.id : undefined,
+      content:
+        items.length === 1
+          ? `正在调用智能体 ${items[0]!.agent.name} …`
+          : `正在依次调用 ${items.map((i) => i.agent.name).join("、")} …`,
       createdAt: Date.now(),
     }
     setConversations((prev) =>
@@ -471,12 +532,40 @@ export function ChatClient() {
       })
     )
     try {
-      const res = await executeAgentServiceAgent(targetAgent.code || targetAgent.name, content, {})
+      const results: { agent: Agent; output: string; error?: string }[] = []
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i]!
+        try {
+          const res = await executeAgentServiceAgent(it.agent.code || it.agent.name, it.text, {
+            original_input: content,
+            segment_index: i,
+            segment_total: items.length,
+            previous_outputs: results.map((r) => ({
+              agent: r.agent.code || r.agent.name,
+              output: r.output,
+            })),
+          })
+          results.push({ agent: it.agent, output: res.output ?? "" })
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          results.push({ agent: it.agent, output: "", error: msg })
+        }
+      }
+
+      const combined =
+        results.length === 1
+          ? results[0]!.output || (results[0]!.error ? `调用失败：${results[0]!.error}` : "")
+          : results
+              .map((r) => {
+                const body = r.output || (r.error ? `调用失败：${r.error}` : "")
+                return `【${r.agent.name}】${body}`
+              })
+              .join("\n\n")
       const assistantMsg: ChatMessage = {
         id: pendingId,
         role: "assistant",
-        agentId: targetAgentId ?? undefined,
-        content: res.output ?? "",
+        agentId: items.length === 1 ? items[0]!.agent.id : undefined,
+        content: combined,
         createdAt: Date.now(),
       }
       setConversations((prev) =>
@@ -491,12 +580,12 @@ export function ChatClient() {
       )
 
       // Persist to backend if user is authenticated and an agent_id is available.
-      if (targetAgentId != null) {
+      if (sessionAgentId != null) {
         let backendSessionId = active.backendSessionId
         if (!backendSessionId) {
           try {
             const session = await createChatSession({
-              agent_id: targetAgentId,
+              agent_id: sessionAgentId,
               title: nextTitle,
             })
             backendSessionId = session.id
@@ -531,7 +620,7 @@ export function ChatClient() {
       const assistantMsg: ChatMessage = {
         id: pendingId,
         role: "assistant",
-        agentId: targetAgentId ?? undefined,
+        agentId: items.length === 1 ? items[0]!.agent.id : undefined,
         content: `Agent Service 调用失败：${e instanceof Error ? e.message : String(e)}`,
         createdAt: Date.now(),
       }
