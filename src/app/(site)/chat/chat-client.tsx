@@ -28,6 +28,7 @@ import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
+import { apiFetch } from "@/lib/api"
 import { executeAgentServiceAgent } from "@/lib/agent-service"
 import { findAgentById, listAgents, type Agent } from "@/lib/agents"
 import {
@@ -153,6 +154,15 @@ function buildDispatchPlan(
   }
   // session agent id: pick first mentioned agent
   return { items, sessionAgentId: items[0]?.agent.id ?? null }
+}
+
+async function routeAgentsByBackend(text: string) {
+  const res = await apiFetch<{ ok: boolean; agents: string[]; mode?: string }>("/routing/plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  })
+  return Array.isArray(res.agents) ? res.agents : []
 }
 
 function makeTitleFromFirstUserMessage(content: string) {
@@ -497,9 +507,38 @@ export function ChatClient() {
     const content = draft.trim()
     if (!content) return
 
-    const plan = buildDispatchPlan(content, agents, active.defaultAgentId ?? agents[0]?.id ?? null)
-    const items = plan.items
-    const sessionAgentId = plan.sessionAgentId
+    const mentionHits = findMentionHits(content, agents)
+    let items: { agent: Agent; text: string }[] = []
+    let sessionAgentId: number | null = null
+
+    if (mentionHits.length) {
+      const plan = buildDispatchPlan(content, agents, active.defaultAgentId ?? agents[0]?.id ?? null)
+      items = plan.items
+      sessionAgentId = plan.sessionAgentId
+    } else {
+      // Use backend router (same as WeCom/OpenClaw routing) when no explicit @ mentions.
+      try {
+        const codes = await routeAgentsByBackend(content)
+        const routed: { agent: Agent; text: string }[] = []
+        for (const code of codes) {
+          const a = agents.find((x) => x.code === code) ?? agents.find((x) => x.name === code) ?? null
+          if (a) routed.push({ agent: a, text: content })
+        }
+        if (routed.length) {
+          items = routed
+          sessionAgentId = routed[0]!.agent.id
+        }
+      } catch {
+        // ignore router failure; fallback below
+      }
+
+      if (!items.length) {
+        const plan = buildDispatchPlan(content, agents, active.defaultAgentId ?? agents[0]?.id ?? null)
+        items = plan.items
+        sessionAgentId = plan.sessionAgentId
+      }
+    }
+
     if (!items.length) {
       const assistantMsg: ChatMessage = {
         id: uid(),
