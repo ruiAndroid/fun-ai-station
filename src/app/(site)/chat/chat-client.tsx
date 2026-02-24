@@ -216,6 +216,7 @@ export function ChatClient() {
   const [agentsHint, setAgentsHint] = React.useState<string | null>(null)
   const [serviceError, setServiceError] = React.useState<string | null>(null)
   const [sending, setSending] = React.useState(false)
+  const sendLockRef = React.useRef(false)
 
   const initialAgentId = React.useMemo(() => {
     if (!agentFromUrl) return null
@@ -519,36 +520,41 @@ export function ChatClient() {
 
   async function send() {
     if (!active) return
+    if (sendLockRef.current) return
     const content = draft.trim()
     if (!content) return
 
-    let items: { agent: Agent; text: string }[] = []
-    let sessionAgentId: number | null = null
+    sendLockRef.current = true
+    setSending(true)
 
-    // Prefer backend router so Web & WeCom/OpenClaw share the same dispatch plan (items: [{agent,text}]).
     try {
-      const routedItems = await routeAgentsByBackend(content)
-      const routed: { agent: Agent; text: string }[] = []
-      const multi = routedItems.length > 1
-      for (const it of routedItems) {
-        const code = it.agent
-        const a = agents.find((x) => x.code === code) ?? agents.find((x) => x.name === code) ?? null
-        const t = (it.text ?? "").trim()
-        if (!a) continue
-        if (!t) {
-          // Avoid sending full original content to every agent in multi-dispatch mode.
-          if (!multi) routed.push({ agent: a, text: content })
-          continue
+      let items: { agent: Agent; text: string }[] = []
+      let sessionAgentId: number | null = null
+
+      // Prefer backend router so Web & WeCom/OpenClaw share the same dispatch plan (items: [{agent,text}]).
+      try {
+        const routedItems = await routeAgentsByBackend(content)
+        const routed: { agent: Agent; text: string }[] = []
+        const multi = routedItems.length > 1
+        for (const it of routedItems) {
+          const code = it.agent
+          const a = agents.find((x) => x.code === code) ?? agents.find((x) => x.name === code) ?? null
+          const t = (it.text ?? "").trim()
+          if (!a) continue
+          if (!t) {
+            // Avoid sending full original content to every agent in multi-dispatch mode.
+            if (!multi) routed.push({ agent: a, text: content })
+            continue
+          }
+          routed.push({ agent: a, text: t })
         }
-        routed.push({ agent: a, text: t })
+        if (routed.length) {
+          items = routed
+          sessionAgentId = routed[0]!.agent.id
+        }
+      } catch {
+        // ignore router failure; fallback below
       }
-      if (routed.length) {
-        items = routed
-        sessionAgentId = routed[0]!.agent.id
-      }
-    } catch {
-      // ignore router failure; fallback below
-    }
 
     if (!items.length) {
       // Fallback: local mention parsing & default agent.
@@ -591,7 +597,6 @@ export function ChatClient() {
     setMention(null)
     queueMicrotask(() => textareaRef.current?.focus())
 
-    setSending(true)
     const pendingId = uid()
     const pendingMsg: ChatMessage = {
       id: pendingId,
@@ -712,7 +717,9 @@ export function ChatClient() {
           }
         })
       )
+    }
     } finally {
+      sendLockRef.current = false
       setSending(false)
     }
   }
