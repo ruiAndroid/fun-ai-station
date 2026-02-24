@@ -372,10 +372,15 @@ export function ChatClient() {
     )
   }, [agents])
 
-  React.useEffect(() => {
-    const viewport = messagesScrollRef.current?.querySelector(
-      "[data-radix-scroll-area-viewport]"
-    ) as HTMLElement | null
+  React.useLayoutEffect(() => {
+    const root = messagesScrollRef.current as HTMLElement | null
+    if (!root) return
+    const viewport =
+      (root.matches('[data-slot="scroll-area-viewport"], [data-radix-scroll-area-viewport]')
+        ? root
+        : (root.querySelector(
+            '[data-slot="scroll-area-viewport"], [data-radix-scroll-area-viewport]'
+          ) as HTMLElement | null)) ?? null
     if (!viewport) return
 
     const activeId = active?.id ?? null
@@ -396,14 +401,14 @@ export function ChatClient() {
     const shouldSmooth =
       sending && !historyLoading && !(switchedSession || historyJustFinished) && isNewMessage
 
+    // Make "instant" scroll truly instant even if some global CSS sets `scroll-behavior: smooth`.
+    // We keep it as auto and explicitly request smooth when needed.
+    if (viewport.style.scrollBehavior !== "auto") viewport.style.scrollBehavior = "auto"
+
     if (shouldSmooth) {
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" })
     } else {
-      // Force instant jump even if some global CSS sets `scroll-behavior: smooth`.
-      const prev = viewport.style.scrollBehavior
-      viewport.style.scrollBehavior = "auto"
       viewport.scrollTop = viewport.scrollHeight
-      viewport.style.scrollBehavior = prev
     }
 
     prevActiveIdRef.current = activeId
