@@ -391,18 +391,25 @@ export function ChatClient() {
     //
     // Note: scrollTo({behavior:"auto"}) can still be smooth if CSS sets `scroll-behavior: smooth`.
     // Use scrollTop assignment for guaranteed instant jumps.
-    const shouldSmooth = !(switchedSession || historyJustFinished) && isNewMessage
+    // Also avoid smooth while loading history: message list may "grow" before loading flag flips.
+    // Only smooth-scroll for actively sending new messages in the current session.
+    const shouldSmooth =
+      sending && !historyLoading && !(switchedSession || historyJustFinished) && isNewMessage
 
     if (shouldSmooth) {
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" })
     } else {
+      // Force instant jump even if some global CSS sets `scroll-behavior: smooth`.
+      const prev = viewport.style.scrollBehavior
+      viewport.style.scrollBehavior = "auto"
       viewport.scrollTop = viewport.scrollHeight
+      viewport.style.scrollBehavior = prev
     }
 
     prevActiveIdRef.current = activeId
     prevMsgCountRef.current = msgCount
     prevHistoryLoadingRef.current = historyLoading
-  }, [active?.id, active?.messages.length, historyLoading])
+  }, [active?.id, active?.messages.length, historyLoading, sending])
 
   const mentionCandidates = React.useMemo(() => {
     const q = (mention?.query ?? "").trim().toLowerCase()
