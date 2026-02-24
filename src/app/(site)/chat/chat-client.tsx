@@ -271,6 +271,80 @@ export function ChatClient() {
   const prevMsgCountRef = React.useRef<number>(0)
   const prevHistoryLoadingRef = React.useRef<boolean>(false)
   const scrollRafRef = React.useRef<number | null>(null)
+  const scrollTimeoutRef = React.useRef<number | null>(null)
+  const allowSmoothScrollRef = React.useRef(false)
+  const patchedViewportRef = React.useRef<HTMLElement | null>(null)
+  const restoreScrollFnsRef = React.useRef<null | (() => void)>(null)
+
+  const getMessagesViewport = React.useCallback(() => {
+    const root = messagesScrollRef.current as HTMLElement | null
+    if (!root) return null
+    return (
+      (root.matches('[data-slot="scroll-area-viewport"], [data-radix-scroll-area-viewport]')
+        ? root
+        : (root.querySelector(
+            '[data-slot="scroll-area-viewport"], [data-radix-scroll-area-viewport]'
+          ) as HTMLElement | null)) ?? null
+    )
+  }, [])
+
+  // Patch viewport.scrollTo/scrollBy to prevent unexpected smooth scrolling (e.g. from 3rd-party UI libs).
+  // Only allow smooth when this component explicitly opts in.
+  React.useEffect(() => {
+    const viewport = getMessagesViewport()
+    if (!viewport) return
+    if (patchedViewportRef.current === viewport) return
+
+    // restore old one (if any)
+    restoreScrollFnsRef.current?.()
+    restoreScrollFnsRef.current = null
+
+    type ScrollFn = {
+      (...args: [ScrollToOptions]): void
+      (...args: [number, number]): void
+    }
+
+    const viewportWithPatched = viewport as unknown as { scrollTo: ScrollFn; scrollBy?: ScrollFn }
+    const origScrollTo = viewport.scrollTo?.bind(viewport) as ScrollFn | undefined
+    const origScrollBy = viewport.scrollBy?.bind(viewport) as ScrollFn | undefined
+
+    if (!origScrollTo) return
+
+    const patchOptions = (opt: ScrollToOptions) => {
+      if (opt.behavior === "smooth") return { ...opt, behavior: "auto" as ScrollBehavior }
+      return opt
+    }
+
+    viewportWithPatched.scrollTo = ((...args: [ScrollToOptions] | [number, number]) => {
+      if (allowSmoothScrollRef.current) return origScrollTo(...args)
+      if (args.length === 1) return origScrollTo(patchOptions(args[0]))
+      return origScrollTo(...args)
+    }) as unknown as ScrollFn
+
+    if (origScrollBy) {
+      viewportWithPatched.scrollBy = ((...args: [ScrollToOptions] | [number, number]) => {
+        if (allowSmoothScrollRef.current) return origScrollBy(...args)
+        if (args.length === 1) return origScrollBy(patchOptions(args[0]))
+        return origScrollBy(...args)
+      }) as unknown as ScrollFn
+    }
+
+    patchedViewportRef.current = viewport
+    restoreScrollFnsRef.current = () => {
+      try {
+        viewportWithPatched.scrollTo = origScrollTo
+        if (origScrollBy) viewportWithPatched.scrollBy = origScrollBy
+      } catch {
+        // ignore
+      }
+    }
+
+    return () => {
+      restoreScrollFnsRef.current?.()
+      restoreScrollFnsRef.current = null
+      patchedViewportRef.current = null
+    }
+  }, [getMessagesViewport])
 
   const loadAgents = React.useCallback(async () => {
     try {
@@ -374,14 +448,7 @@ export function ChatClient() {
   }, [agents])
 
   React.useLayoutEffect(() => {
-    const root = messagesScrollRef.current as HTMLElement | null
-    if (!root) return
-    const viewport =
-      (root.matches('[data-slot="scroll-area-viewport"], [data-radix-scroll-area-viewport]')
-        ? root
-        : (root.querySelector(
-            '[data-slot="scroll-area-viewport"], [data-radix-scroll-area-viewport]'
-          ) as HTMLElement | null)) ?? null
+    const viewport = getMessagesViewport()
     if (!viewport) return
 
     const activeId = active?.id ?? null
@@ -390,6 +457,14 @@ export function ChatClient() {
     const switchedSession = prevActiveIdRef.current !== activeId
     const historyJustFinished = prevHistoryLoadingRef.current && !historyLoading
     const isNewMessage = prevActiveIdRef.current === activeId && msgCount > prevMsgCountRef.current
+
+    const shouldScroll = switchedSession || historyJustFinished || isNewMessage
+    if (!shouldScroll) {
+      prevActiveIdRef.current = activeId
+      prevMsgCountRef.current = msgCount
+      prevHistoryLoadingRef.current = historyLoading
+      return
+    }
 
     // UX:
     // - Switching sessions / loading history: jump to bottom immediately (avoid long smooth-scroll).
@@ -402,12 +477,14 @@ export function ChatClient() {
     const shouldSmooth =
       sending && !historyLoading && !(switchedSession || historyJustFinished) && isNewMessage
 
-    // Make "instant" scroll truly instant even if some global CSS sets `scroll-behavior: smooth`.
+    // Make "instant" scroll truly instant even if some global CSS sets `scroll-behavior: smooth` (even with !important).
     // We keep it as auto and explicitly request smooth when needed.
-    if (viewport.style.scrollBehavior !== "auto") viewport.style.scrollBehavior = "auto"
+    viewport.style.setProperty("scroll-behavior", "auto", "important")
 
     if (shouldSmooth) {
+      allowSmoothScrollRef.current = true
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" })
+      allowSmoothScrollRef.current = false
     } else {
       // Cancel any in-flight smooth scroll (some browsers keep animating even after DOM updates).
       try {
@@ -416,19 +493,27 @@ export function ChatClient() {
         // ignore
       }
 
-      // Jump now (before paint) and once more on the next frame to avoid first-switch "glide"
-      // caused by layout settling (fonts/avatars/etc).
+      // Hard jump for session switch / history load completion.
       viewport.scrollTop = viewport.scrollHeight
       if (scrollRafRef.current != null) cancelAnimationFrame(scrollRafRef.current)
-      scrollRafRef.current = requestAnimationFrame(() => {
-        viewport.scrollTop = viewport.scrollHeight
-      })
+      if (scrollTimeoutRef.current != null) window.clearTimeout(scrollTimeoutRef.current)
+
+      // One trailing correction after layout settles; avoids visible "glide" from repeated small scrolls.
+      if (switchedSession || historyJustFinished) {
+        scrollTimeoutRef.current = window.setTimeout(() => {
+          viewport.scrollTop = viewport.scrollHeight
+        }, 120)
+      } else {
+        scrollRafRef.current = requestAnimationFrame(() => {
+          viewport.scrollTop = viewport.scrollHeight
+        })
+      }
     }
 
     prevActiveIdRef.current = activeId
     prevMsgCountRef.current = msgCount
     prevHistoryLoadingRef.current = historyLoading
-  }, [active?.id, active?.messages.length, historyLoading, sending])
+  }, [active?.id, active?.messages.length, historyLoading, sending, getMessagesViewport])
 
   const mentionCandidates = React.useMemo(() => {
     const q = (mention?.query ?? "").trim().toLowerCase()
