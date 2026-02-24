@@ -157,12 +157,27 @@ function buildDispatchPlan(
 }
 
 async function routeAgentsByBackend(text: string) {
-  const res = await apiFetch<{ ok: boolean; agents: string[]; mode?: string }>("/routing/plan", {
+  const res = await apiFetch<{
+    ok: boolean
+    agents?: string[]
+    items?: { agent: string; text: string }[]
+    mode?: string
+  }>("/routing/plan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   })
-  return Array.isArray(res.agents) ? res.agents : []
+
+  if (Array.isArray(res.items) && res.items.length) {
+    return res.items
+      .filter((it) => it && typeof it.agent === "string")
+      .map((it) => ({ agent: it.agent, text: typeof it.text === "string" ? it.text : "" }))
+      .filter((it) => it.agent.trim())
+  }
+
+  // Backward compatible: older backend returns only agent codes.
+  const agents = Array.isArray(res.agents) ? res.agents : []
+  return agents.map((agent) => ({ agent, text }))
 }
 
 function makeTitleFromFirstUserMessage(content: string) {
@@ -507,36 +522,31 @@ export function ChatClient() {
     const content = draft.trim()
     if (!content) return
 
-    const mentionHits = findMentionHits(content, agents)
     let items: { agent: Agent; text: string }[] = []
     let sessionAgentId: number | null = null
 
-    if (mentionHits.length) {
+    // Prefer backend router so Web & WeCom/OpenClaw share the same dispatch plan (items: [{agent,text}]).
+    try {
+      const routedItems = await routeAgentsByBackend(content)
+      const routed: { agent: Agent; text: string }[] = []
+      for (const it of routedItems) {
+        const code = it.agent
+        const a = agents.find((x) => x.code === code) ?? agents.find((x) => x.name === code) ?? null
+        if (a) routed.push({ agent: a, text: it.text || content })
+      }
+      if (routed.length) {
+        items = routed
+        sessionAgentId = routed[0]!.agent.id
+      }
+    } catch {
+      // ignore router failure; fallback below
+    }
+
+    if (!items.length) {
+      // Fallback: local mention parsing & default agent.
       const plan = buildDispatchPlan(content, agents, active.defaultAgentId ?? agents[0]?.id ?? null)
       items = plan.items
       sessionAgentId = plan.sessionAgentId
-    } else {
-      // Use backend router (same as WeCom/OpenClaw routing) when no explicit @ mentions.
-      try {
-        const codes = await routeAgentsByBackend(content)
-        const routed: { agent: Agent; text: string }[] = []
-        for (const code of codes) {
-          const a = agents.find((x) => x.code === code) ?? agents.find((x) => x.name === code) ?? null
-          if (a) routed.push({ agent: a, text: content })
-        }
-        if (routed.length) {
-          items = routed
-          sessionAgentId = routed[0]!.agent.id
-        }
-      } catch {
-        // ignore router failure; fallback below
-      }
-
-      if (!items.length) {
-        const plan = buildDispatchPlan(content, agents, active.defaultAgentId ?? agents[0]?.id ?? null)
-        items = plan.items
-        sessionAgentId = plan.sessionAgentId
-      }
     }
 
     if (!items.length) {
