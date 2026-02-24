@@ -270,6 +270,7 @@ export function ChatClient() {
   const prevActiveIdRef = React.useRef<string | null>(null)
   const prevMsgCountRef = React.useRef<number>(0)
   const prevHistoryLoadingRef = React.useRef<boolean>(false)
+  const scrollRafRef = React.useRef<number | null>(null)
 
   const loadAgents = React.useCallback(async () => {
     try {
@@ -408,7 +409,20 @@ export function ChatClient() {
     if (shouldSmooth) {
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" })
     } else {
+      // Cancel any in-flight smooth scroll (some browsers keep animating even after DOM updates).
+      try {
+        viewport.scrollTo({ top: viewport.scrollTop, behavior: "auto" })
+      } catch {
+        // ignore
+      }
+
+      // Jump now (before paint) and once more on the next frame to avoid first-switch "glide"
+      // caused by layout settling (fonts/avatars/etc).
       viewport.scrollTop = viewport.scrollHeight
+      if (scrollRafRef.current != null) cancelAnimationFrame(scrollRafRef.current)
+      scrollRafRef.current = requestAnimationFrame(() => {
+        viewport.scrollTop = viewport.scrollHeight
+      })
     }
 
     prevActiveIdRef.current = activeId
