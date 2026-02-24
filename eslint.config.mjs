@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Deploy/ops assets (may include non-TS/ESM scripts).
+    "deploy/openclaw-wecom-forwarder/**",
   ]),
 ]);
 

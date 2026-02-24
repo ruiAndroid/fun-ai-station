@@ -1,0 +1,26 @@
+[Unit]
+Description=OpenClaw WeCom Forwarder (mirror -> fun-ai-station-api webhook)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/openclaw-wecom-forwarder
+
+# Option A: pin exact node path (matches your current server; adjust version/path as needed)
+ExecStart=/root/.nvm/versions/node/v22.22.0/bin/node /opt/openclaw-wecom-forwarder/wecom_forwarder.js
+
+# Option B (alternative): if you want to source nvm (uncomment and adjust user/home)
+# ExecStart=/usr/bin/bash -lc 'source /root/.nvm/nvm.sh && node /opt/openclaw-wecom-forwarder/wecom_forwarder.js'
+
+EnvironmentFile=-/opt/openclaw-wecom-forwarder/.env
+Restart=always
+RestartSec=2
+
+# Logs
+StandardOutput=append:/var/log/openclaw-wecom-forwarder.log
+StandardError=append:/var/log/openclaw-wecom-forwarder.err.log
+
+[Install]
+WantedBy=multi-user.target
+
