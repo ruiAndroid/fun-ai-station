@@ -272,6 +272,8 @@ export function ChatClient() {
   const prevHistoryLoadingRef = React.useRef<boolean>(false)
   const scrollRafRef = React.useRef<number | null>(null)
   const scrollTimeoutRef = React.useRef<number | null>(null)
+  const scrollLockUntilRef = React.useRef<number>(0)
+  const scrollLockRafRef = React.useRef<number | null>(null)
   const allowSmoothScrollRef = React.useRef(false)
   const patchedViewportRef = React.useRef<HTMLElement | null>(null)
   const restoreScrollFnsRef = React.useRef<null | (() => void)>(null)
@@ -329,6 +331,18 @@ export function ChatClient() {
       }) as unknown as ScrollFn
     }
 
+    const forceBottomIfLocked = () => {
+      if (Date.now() > scrollLockUntilRef.current) return
+      // If another code path tries to adjust scrollTop gradually (e.g. smooth polyfill),
+      // clamp it back to bottom during the lock window.
+      if (scrollLockRafRef.current != null) cancelAnimationFrame(scrollLockRafRef.current)
+      scrollLockRafRef.current = requestAnimationFrame(() => {
+        if (Date.now() > scrollLockUntilRef.current) return
+        viewport.scrollTop = viewport.scrollHeight
+      })
+    }
+    viewport.addEventListener("scroll", forceBottomIfLocked, { passive: true })
+
     patchedViewportRef.current = viewport
     restoreScrollFnsRef.current = () => {
       try {
@@ -337,6 +351,13 @@ export function ChatClient() {
       } catch {
         // ignore
       }
+      try {
+        viewport.removeEventListener("scroll", forceBottomIfLocked)
+      } catch {
+        // ignore
+      }
+      if (scrollLockRafRef.current != null) cancelAnimationFrame(scrollLockRafRef.current)
+      scrollLockRafRef.current = null
     }
 
     return () => {
@@ -482,10 +503,15 @@ export function ChatClient() {
     viewport.style.setProperty("scroll-behavior", "auto", "important")
 
     if (shouldSmooth) {
+      scrollLockUntilRef.current = 0
       allowSmoothScrollRef.current = true
       viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" })
       allowSmoothScrollRef.current = false
     } else {
+      // During session switch / history completion, lock scroll at bottom briefly to avoid any "glide"
+      // caused by other code adjusting scrollTop in steps.
+      if (switchedSession || historyJustFinished) scrollLockUntilRef.current = Date.now() + 500
+
       // Cancel any in-flight smooth scroll (some browsers keep animating even after DOM updates).
       try {
         viewport.scrollTo({ top: viewport.scrollTop, behavior: "auto" })
