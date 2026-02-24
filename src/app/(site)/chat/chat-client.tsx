@@ -267,6 +267,9 @@ export function ChatClient() {
   const [creatingSession, setCreatingSession] = React.useState(false)
   const [renamingId, setRenamingId] = React.useState<string | null>(null)
   const [renameValue, setRenameValue] = React.useState("")
+  const prevActiveIdRef = React.useRef<string | null>(null)
+  const prevMsgCountRef = React.useRef<number>(0)
+  const prevHistoryLoadingRef = React.useRef<boolean>(false)
 
   const loadAgents = React.useCallback(async () => {
     try {
@@ -374,7 +377,25 @@ export function ChatClient() {
       "[data-radix-scroll-area-viewport]"
     ) as HTMLElement | null
     if (!viewport) return
-    viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" })
+
+    const activeId = active?.id ?? null
+    const msgCount = active?.messages.length ?? 0
+
+    const switchedSession = prevActiveIdRef.current !== null && prevActiveIdRef.current !== activeId
+    const historyJustFinished = prevHistoryLoadingRef.current && !historyLoading
+    const isNewMessage = msgCount > prevMsgCountRef.current
+
+    // UX:
+    // - Switching sessions / loading history: jump to bottom immediately (avoid long smooth-scroll).
+    // - New messages in current session: smooth-scroll.
+    const behavior: ScrollBehavior =
+      switchedSession || historyJustFinished ? "auto" : isNewMessage ? "smooth" : "auto"
+
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior })
+
+    prevActiveIdRef.current = activeId
+    prevMsgCountRef.current = msgCount
+    prevHistoryLoadingRef.current = historyLoading
   }, [active?.id, active?.messages.length, historyLoading])
 
   const mentionCandidates = React.useMemo(() => {
