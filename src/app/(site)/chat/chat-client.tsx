@@ -388,10 +388,16 @@ export function ChatClient() {
     // UX:
     // - Switching sessions / loading history: jump to bottom immediately (avoid long smooth-scroll).
     // - New messages in current session: smooth-scroll.
-    const behavior: ScrollBehavior =
-      switchedSession || historyJustFinished ? "auto" : isNewMessage ? "smooth" : "auto"
+    //
+    // Note: scrollTo({behavior:"auto"}) can still be smooth if CSS sets `scroll-behavior: smooth`.
+    // Use scrollTop assignment for guaranteed instant jumps.
+    const shouldSmooth = !(switchedSession || historyJustFinished) && isNewMessage
 
-    viewport.scrollTo({ top: viewport.scrollHeight, behavior })
+    if (shouldSmooth) {
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" })
+    } else {
+      viewport.scrollTop = viewport.scrollHeight
+    }
 
     prevActiveIdRef.current = activeId
     prevMsgCountRef.current = msgCount
