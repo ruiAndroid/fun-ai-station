@@ -381,9 +381,9 @@ export function ChatClient() {
     const activeId = active?.id ?? null
     const msgCount = active?.messages.length ?? 0
 
-    const switchedSession = prevActiveIdRef.current !== null && prevActiveIdRef.current !== activeId
+    const switchedSession = prevActiveIdRef.current !== activeId
     const historyJustFinished = prevHistoryLoadingRef.current && !historyLoading
-    const isNewMessage = msgCount > prevMsgCountRef.current
+    const isNewMessage = prevActiveIdRef.current === activeId && msgCount > prevMsgCountRef.current
 
     // UX:
     // - Switching sessions / loading history: jump to bottom immediately (avoid long smooth-scroll).
