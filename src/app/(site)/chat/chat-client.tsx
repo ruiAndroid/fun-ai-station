@@ -529,10 +529,18 @@ export function ChatClient() {
     try {
       const routedItems = await routeAgentsByBackend(content)
       const routed: { agent: Agent; text: string }[] = []
+      const multi = routedItems.length > 1
       for (const it of routedItems) {
         const code = it.agent
         const a = agents.find((x) => x.code === code) ?? agents.find((x) => x.name === code) ?? null
-        if (a) routed.push({ agent: a, text: it.text || content })
+        const t = (it.text ?? "").trim()
+        if (!a) continue
+        if (!t) {
+          // Avoid sending full original content to every agent in multi-dispatch mode.
+          if (!multi) routed.push({ agent: a, text: content })
+          continue
+        }
+        routed.push({ agent: a, text: t })
       }
       if (routed.length) {
         items = routed
