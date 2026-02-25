@@ -48,6 +48,7 @@ type DispatchPlanItem = {
   agent_name?: string
   text: string
   reason?: string
+  depends_on?: string[]
 }
 
 type DispatchDebug = {
@@ -149,7 +150,7 @@ function buildDispatchPlan(
   content: string,
   agents: Agent[],
   fallbackAgentId: number | null | undefined
-): { items: { agent: Agent; text: string }[]; sessionAgentId: number | null } {
+): { items: { agent: Agent; text: string; depends_on?: string[] }[]; sessionAgentId: number | null } {
   const hits = findMentionHits(content, agents)
   const cleaned = removeMentions(content, hits)
 
@@ -157,16 +158,17 @@ function buildDispatchPlan(
     const targetId = fallbackAgentId ?? agents[0]?.id ?? null
     const target = findAgentById(agents, targetId)
     if (!target) return { items: [], sessionAgentId: null }
-    return { items: [{ agent: target, text: content }], sessionAgentId: target.id }
+    return { items: [{ agent: target, text: content, depends_on: [] }], sessionAgentId: target.id }
   }
 
-  const items: { agent: Agent; text: string }[] = []
+  const items: { agent: Agent; text: string; depends_on?: string[] }[] = []
   for (let i = 0; i < hits.length; i++) {
     const cur = hits[i]
     const next = hits[i + 1]
     const seg = content.slice(cur.end, next?.start ?? content.length).trim()
     // If user didn't write segment content, fall back to cleaned message
-    items.push({ agent: cur.agent, text: seg || cleaned || content })
+    const prevCodes = items.map((it) => it.agent.code || it.agent.name).filter(Boolean)
+    items.push({ agent: cur.agent, text: seg || cleaned || content, depends_on: prevCodes })
   }
   // session agent id: pick first mentioned agent
   return { items, sessionAgentId: items[0]?.agent.id ?? null }
@@ -176,7 +178,7 @@ async function routePlanByBackend(text: string): Promise<DispatchDebug> {
   const res = await apiFetch<{
     ok: boolean
     agents?: string[]
-    items?: { agent: string; agent_name?: string; text: string; reason?: string }[]
+    items?: { agent: string; agent_name?: string; text: string; reason?: string; depends_on?: string[] }[]
     mode?: string
     strategy?: string
     debug?: unknown
@@ -187,21 +189,24 @@ async function routePlanByBackend(text: string): Promise<DispatchDebug> {
   })
 
   let items: DispatchPlanItem[] = []
-  if (Array.isArray(res.items) && res.items.length) {
-    items = res.items
-      .filter((it) => it && typeof it.agent === "string")
-      .map((it) => ({
-        agent: String(it.agent || "").trim(),
-        agent_name: typeof it.agent_name === "string" ? it.agent_name : undefined,
-        text: typeof it.text === "string" ? it.text : "",
-        reason: typeof it.reason === "string" ? it.reason : undefined,
-      }))
-      .filter((it) => it.agent.trim())
-  } else {
-    // Backward compatible: older backend returns only agent codes.
-    const agents = Array.isArray(res.agents) ? res.agents : []
-    items = agents.map((agent) => ({ agent, text }))
-  }
+    if (Array.isArray(res.items) && res.items.length) {
+      items = res.items
+        .filter((it) => it && typeof it.agent === "string")
+        .map((it) => ({
+          agent: String(it.agent || "").trim(),
+          agent_name: typeof it.agent_name === "string" ? it.agent_name : undefined,
+          text: typeof it.text === "string" ? it.text : "",
+          reason: typeof it.reason === "string" ? it.reason : undefined,
+          depends_on: Array.isArray(it.depends_on)
+            ? it.depends_on.map((d) => String(d || "").trim()).filter(Boolean)
+            : undefined,
+        }))
+        .filter((it) => it.agent.trim())
+    } else {
+      // Backward compatible: older backend returns only agent codes.
+      const agents = Array.isArray(res.agents) ? res.agents : []
+      items = agents.map((agent) => ({ agent, text, depends_on: [] }))
+    }
 
   return {
     mode: typeof res.mode === "string" ? res.mode : undefined,
@@ -219,6 +224,39 @@ function makeTitleFromFirstUserMessage(content: string) {
 function isAuthError(error: unknown) {
   const msg = error instanceof Error ? error.message : String(error)
   return msg.includes("Could not validate credentials") || msg.includes("401")
+}
+
+function selectDependencies(
+  results: { agent: Agent; output: string }[],
+  dependsOn?: string[]
+): { agent: string; output: string }[] {
+  if (!dependsOn || !dependsOn.length) {
+    return results.map((r) => ({ agent: r.agent.code || r.agent.name, output: r.output }))
+  }
+  const depSet = new Set(dependsOn.filter(Boolean))
+  return results
+    .filter((r) => depSet.has(r.agent.code || r.agent.name))
+    .map((r) => ({ agent: r.agent.code || r.agent.name, output: r.output }))
+}
+
+function buildSynthesisInput(content: string, results: { agent: Agent; output: string }[]) {
+  const lines = results
+    .map((r) => {
+      const name = r.agent.name || r.agent.code
+      const out = (r.output || "").trim()
+      if (!name || !out) return null
+      const safe = out.length > 2000 ? `${out.slice(0, 1999)}…` : out
+      return `- ${name}: ${safe}`
+    })
+    .filter(Boolean)
+  const joined = lines.length ? lines.join("\n") : "(无有效输出)"
+  return (
+    "你是多智能体协作的汇总助手。请基于用户原始问题与各智能体输出，给出最终答复。\n" +
+    "要求：1) 只输出最终结论/行动项，不逐条复述每个智能体；2) 如有冲突，指出并给出最合理方案；" +
+    "3) 保持与用户一致的语言与语气。\n\n" +
+    `【用户原始问题】\n${content}\n\n` +
+    `【各智能体输出】\n${joined}`
+  )
 }
 
 type MentionState = {
@@ -733,7 +771,7 @@ export function ChatClient() {
     setSending(true)
 
     try {
-      let items: { agent: Agent; text: string }[] = []
+      let items: { agent: Agent; text: string; depends_on?: string[] }[] = []
       let sessionAgentId: number | null = null
       let dispatch: DispatchDebug | null = null
 
@@ -742,7 +780,7 @@ export function ChatClient() {
         const plan0 = await routePlanByBackend(content)
         dispatch = plan0
         const routedItems = plan0.items
-        const routed: { agent: Agent; text: string }[] = []
+        const routed: { agent: Agent; text: string; depends_on?: string[] }[] = []
         const multi = routedItems.length > 1
         for (const it of routedItems) {
           const code = it.agent
@@ -751,10 +789,10 @@ export function ChatClient() {
           if (!a) continue
           if (!t) {
             // Avoid sending full original content to every agent in multi-dispatch mode.
-            if (!multi) routed.push({ agent: a, text: content })
+            if (!multi) routed.push({ agent: a, text: content, depends_on: it.depends_on ?? [] })
             continue
           }
-          routed.push({ agent: a, text: t })
+          routed.push({ agent: a, text: t, depends_on: it.depends_on ?? [] })
         }
         if (routed.length) {
           items = routed
@@ -769,12 +807,17 @@ export function ChatClient() {
       const plan = buildDispatchPlan(content, agents, active.defaultAgentId ?? agents[0]?.id ?? null)
       items = plan.items
       sessionAgentId = plan.sessionAgentId
-      dispatch = {
-        mode: "client",
-        strategy: "client_fallback",
-        items: items.map((it) => ({ agent: it.agent.code || it.agent.name, agent_name: it.agent.name, text: it.text })),
+        dispatch = {
+          mode: "client",
+          strategy: "client_fallback",
+          items: items.map((it) => ({
+            agent: it.agent.code || it.agent.name,
+            agent_name: it.agent.name,
+            text: it.text,
+            depends_on: it.depends_on ?? [],
+          })),
+        }
       }
-    }
 
     if (!items.length) {
       const assistantMsg: ChatMessage = {
@@ -830,34 +873,61 @@ export function ChatClient() {
     )
     try {
       const results: { agent: Agent; output: string; error?: string }[] = []
-      for (let i = 0; i < items.length; i++) {
-        const it = items[i]!
-        try {
-          const res = await executeAgentServiceAgent(it.agent.code || it.agent.name, it.text, {
-            original_input: content,
-            segment_index: i,
-            segment_total: items.length,
-            previous_outputs: results.map((r) => ({
-              agent: r.agent.code || r.agent.name,
-              output: r.output,
-            })),
-          })
-          results.push({ agent: it.agent, output: res.output ?? "" })
-        } catch (e) {
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i]!
+          try {
+            const dependsOn = it.depends_on ?? []
+            const dependencies = selectDependencies(results, dependsOn)
+            const res = await executeAgentServiceAgent(it.agent.code || it.agent.name, it.text, {
+              original_input: content,
+              segment_index: i,
+              segment_total: items.length,
+              depends_on: dependsOn,
+              dependencies,
+              previous_outputs: results.map((r) => ({
+                agent: r.agent.code || r.agent.name,
+                output: r.output,
+              })),
+            })
+            results.push({ agent: it.agent, output: res.output ?? "" })
+          } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)
           results.push({ agent: it.agent, output: "", error: msg })
         }
       }
 
-      const combined =
-        results.length === 1
-          ? results[0]!.output || (results[0]!.error ? `调用失败：${results[0]!.error}` : "")
-          : results
-              .map((r) => {
-                const body = r.output || (r.error ? `调用失败：${r.error}` : "")
-                return `【${r.agent.name}】${body}`
-              })
-              .join("\n\n")
+        let combined =
+          results.length === 1
+            ? results[0]!.output || (results[0]!.error ? `调用失败：${results[0]!.error}` : "")
+            : results
+                .map((r) => {
+                  const body = r.output || (r.error ? `调用失败：${r.error}` : "")
+                  return `【${r.agent.name}】${body}`
+                })
+                .join("\n\n")
+
+        if (results.length > 1) {
+          try {
+            const synthInput = buildSynthesisInput(content, results)
+            const synthRes = await executeAgentServiceAgent("synthesizer", synthInput, {
+              original_input: content,
+              depends_on: results.map((r) => r.agent.code || r.agent.name),
+              dependencies: results.map((r) => ({
+                agent: r.agent.code || r.agent.name,
+                output: r.output,
+              })),
+              previous_outputs: results.map((r) => ({
+                agent: r.agent.code || r.agent.name,
+                output: r.output,
+              })),
+            })
+            if (synthRes?.output) {
+              combined = String(synthRes.output || "").trim() || combined
+            }
+          } catch {
+            // ignore synthesizer failure, fallback to combined
+          }
+        }
       const assistantMsg: ChatMessage = {
         id: pendingId,
         role: "assistant",
@@ -1222,15 +1292,20 @@ function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
             </summary>
             <div className="mt-2 space-y-2">
               {m.dispatch.mode ? <div>mode: <span className="font-mono">{m.dispatch.mode}</span></div> : null}
-              {m.dispatch.items.map((it, idx) => (
-                <div key={`${it.agent}-${idx}`} className="space-y-1">
-                  <div>
-                    <span className="font-mono">@{it.agent}</span>
-                    {it.agent_name ? <span className="ml-2">({it.agent_name})</span> : null}：{it.text || "（空）"}
+                {m.dispatch.items.map((it, idx) => (
+                  <div key={`${it.agent}-${idx}`} className="space-y-1">
+                    <div>
+                      <span className="font-mono">@{it.agent}</span>
+                      {it.agent_name ? <span className="ml-2">({it.agent_name})</span> : null}：{it.text || "（空）"}
+                    </div>
+                    {it.reason ? <div className="text-muted-foreground">原因：{it.reason}</div> : null}
+                    {it.depends_on?.length ? (
+                      <div className="text-muted-foreground">
+                        依赖：{it.depends_on.map((d) => `@${d}`).join("、")}
+                      </div>
+                    ) : null}
                   </div>
-                  {it.reason ? <div className="text-muted-foreground">原因：{it.reason}</div> : null}
-                </div>
-              ))}
+                ))}
               {m.dispatch.debug ? (
                 <pre className="max-h-40 overflow-auto rounded-md bg-muted/30 p-2 text-[11px] leading-5">
                   {JSON.stringify(m.dispatch.debug, null, 2)}
