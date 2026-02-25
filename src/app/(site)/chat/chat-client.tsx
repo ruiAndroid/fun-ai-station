@@ -463,6 +463,18 @@ export function ChatClient() {
     return () => window.removeEventListener("auth:token", loadAgents)
   }, [loadAgents])
 
+  React.useEffect(() => {
+    const handleAuthToken = () => {
+      setSessionsLoaded(false)
+      setHistoryError(null)
+      setHistoryLoading(false)
+      setConversations([])
+      setActiveId("")
+    }
+    window.addEventListener("auth:token", handleAuthToken)
+    return () => window.removeEventListener("auth:token", handleAuthToken)
+  }, [])
+
   // Require login when entering chat
   React.useEffect(() => {
     const token = getAccessToken()
@@ -770,11 +782,42 @@ export function ChatClient() {
     sendLockRef.current = true
     setSending(true)
 
-    try {
-      let items: { agent: Agent; text: string; depends_on?: string[] }[] = []
-      let sessionAgentId: number | null = null
-      let dispatch: DispatchDebug | null = null
+    let items: { agent: Agent; text: string; depends_on?: string[] }[] = []
+    let sessionAgentId: number | null = null
+    let dispatch: DispatchDebug | null = { mode: "planning", strategy: "planning", items: [] }
+    const pendingId = uid()
 
+    const nextTitle = active.title === "新会话" ? makeTitleFromFirstUserMessage(content) : active.title
+    const userMsg: ChatMessage = {
+      id: uid(),
+      role: "user",
+      content,
+      createdAt: Date.now(),
+    }
+    const pendingMsg: ChatMessage = {
+      id: pendingId,
+      role: "assistant",
+      dispatch: dispatch ?? undefined,
+      content: "正在编排任务…",
+      createdAt: Date.now(),
+    }
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== active.id) return c
+        return {
+          ...c,
+          title: nextTitle,
+          updatedAt: Date.now(),
+          messages: [...c.messages, userMsg, pendingMsg],
+        }
+      })
+    )
+
+    setDraft("")
+    setMention(null)
+    queueMicrotask(() => textareaRef.current?.focus())
+
+    try {
       // Prefer backend router so Web & WeCom/OpenClaw share the same dispatch plan (items: [{agent,text}]).
       try {
         const plan0 = await routePlanByBackend(content)
@@ -802,11 +845,11 @@ export function ChatClient() {
         // ignore router failure; fallback below
       }
 
-    if (!items.length) {
-      // Fallback: local mention parsing & default agent.
-      const plan = buildDispatchPlan(content, agents, active.defaultAgentId ?? agents[0]?.id ?? null)
-      items = plan.items
-      sessionAgentId = plan.sessionAgentId
+      if (!items.length) {
+        // Fallback: local mention parsing & default agent.
+        const plan = buildDispatchPlan(content, agents, active.defaultAgentId ?? agents[0]?.id ?? null)
+        items = plan.items
+        sessionAgentId = plan.sessionAgentId
         dispatch = {
           mode: "client",
           strategy: "client_fallback",
@@ -819,115 +862,103 @@ export function ChatClient() {
         }
       }
 
-    if (!items.length) {
-      const assistantMsg: ChatMessage = {
-        id: uid(),
-        role: "assistant",
-        content: "当前没有可用智能体，请稍后再试。",
-        createdAt: Date.now(),
+      if (!items.length) {
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== active.id) return c
+            return {
+              ...c,
+              updatedAt: Date.now(),
+              messages: c.messages.map((m) =>
+                m.id === pendingId
+                  ? { ...m, content: "当前没有可用智能体，请稍后再试。", dispatch: dispatch ?? undefined }
+                  : m
+              ),
+            }
+          })
+        )
+        return
       }
+
       setConversations((prev) =>
         prev.map((c) => {
           if (c.id !== active.id) return c
-          return { ...c, updatedAt: Date.now(), messages: [...c.messages, assistantMsg] }
+          return {
+            ...c,
+            updatedAt: Date.now(),
+            messages: c.messages.map((m) =>
+              m.id === pendingId
+                ? {
+                    ...m,
+                    agentId: items.length === 1 ? items[0]!.agent.id : undefined,
+                    dispatch: dispatch ?? undefined,
+                    content:
+                      items.length === 1
+                        ? `正在调用智能体 ${items[0]!.agent.name} …`
+                        : `正在依次调用 ${items.map((i) => i.agent.name).join("、")} …`,
+                  }
+                : m
+            ),
+          }
         })
       )
-      return
-    }
 
-    const userMsg: ChatMessage = {
-      id: uid(),
-      role: "user",
-      content,
-      createdAt: Date.now(),
-    }
-    const nextTitle = active.title === "新会话" ? makeTitleFromFirstUserMessage(content) : active.title
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id !== active.id) return c
-        return { ...c, title: nextTitle, updatedAt: Date.now(), messages: [...c.messages, userMsg] }
-      })
-    )
-
-    setDraft("")
-    setMention(null)
-    queueMicrotask(() => textareaRef.current?.focus())
-
-    const pendingId = uid()
-    const pendingMsg: ChatMessage = {
-      id: pendingId,
-      role: "assistant",
-      agentId: items.length === 1 ? items[0]!.agent.id : undefined,
-      dispatch: dispatch ?? undefined,
-      content:
-        items.length === 1
-          ? `正在调用智能体 ${items[0]!.agent.name} …`
-          : `正在依次调用 ${items.map((i) => i.agent.name).join("、")} …`,
-      createdAt: Date.now(),
-    }
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id !== active.id) return c
-        return { ...c, updatedAt: Date.now(), messages: [...c.messages, pendingMsg] }
-      })
-    )
-    try {
       const results: { agent: Agent; output: string; error?: string }[] = []
-        for (let i = 0; i < items.length; i++) {
-          const it = items[i]!
-          try {
-            const dependsOn = it.depends_on ?? []
-            const dependencies = selectDependencies(results, dependsOn)
-            const res = await executeAgentServiceAgent(it.agent.code || it.agent.name, it.text, {
-              original_input: content,
-              segment_index: i,
-              segment_total: items.length,
-              depends_on: dependsOn,
-              dependencies,
-              previous_outputs: results.map((r) => ({
-                agent: r.agent.code || r.agent.name,
-                output: r.output,
-              })),
-            })
-            results.push({ agent: it.agent, output: res.output ?? "" })
-          } catch (e) {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i]!
+        try {
+          const dependsOn = it.depends_on ?? []
+          const dependencies = selectDependencies(results, dependsOn)
+          const res = await executeAgentServiceAgent(it.agent.code || it.agent.name, it.text, {
+            original_input: content,
+            segment_index: i,
+            segment_total: items.length,
+            depends_on: dependsOn,
+            dependencies,
+            previous_outputs: results.map((r) => ({
+              agent: r.agent.code || r.agent.name,
+              output: r.output,
+            })),
+          })
+          results.push({ agent: it.agent, output: res.output ?? "" })
+        } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)
           results.push({ agent: it.agent, output: "", error: msg })
         }
       }
 
-        let combined =
-          results.length === 1
-            ? results[0]!.output || (results[0]!.error ? `调用失败：${results[0]!.error}` : "")
-            : results
-                .map((r) => {
-                  const body = r.output || (r.error ? `调用失败：${r.error}` : "")
-                  return `【${r.agent.name}】${body}`
-                })
-                .join("\n\n")
+      let combined =
+        results.length === 1
+          ? results[0]!.output || (results[0]!.error ? `调用失败：${results[0]!.error}` : "")
+          : results
+              .map((r) => {
+                const body = r.output || (r.error ? `调用失败：${r.error}` : "")
+                return `【${r.agent.name}】${body}`
+              })
+              .join("\n\n")
 
-        if (results.length > 1) {
-          try {
-            const synthInput = buildSynthesisInput(content, results)
-            const synthRes = await executeAgentServiceAgent("synthesizer", synthInput, {
-              original_input: content,
-              depends_on: results.map((r) => r.agent.code || r.agent.name),
-              dependencies: results.map((r) => ({
-                agent: r.agent.code || r.agent.name,
-                output: r.output,
-              })),
-              previous_outputs: results.map((r) => ({
-                agent: r.agent.code || r.agent.name,
-                output: r.output,
-              })),
-            })
-            if (synthRes?.output) {
-              combined = String(synthRes.output || "").trim() || combined
-            }
-          } catch {
-            // ignore synthesizer failure, fallback to combined
+      if (results.length > 1) {
+        try {
+          const synthInput = buildSynthesisInput(content, results)
+          const synthRes = await executeAgentServiceAgent("synthesizer", synthInput, {
+            original_input: content,
+            depends_on: results.map((r) => r.agent.code || r.agent.name),
+            dependencies: results.map((r) => ({
+              agent: r.agent.code || r.agent.name,
+              output: r.output,
+            })),
+            previous_outputs: results.map((r) => ({
+              agent: r.agent.code || r.agent.name,
+              output: r.output,
+            })),
+          })
+          if (synthRes?.output) {
+            combined = String(synthRes.output || "").trim() || combined
           }
+        } catch {
+          // ignore synthesizer failure, fallback to combined
         }
+      }
       const assistantMsg: ChatMessage = {
         id: pendingId,
         role: "assistant",
@@ -1284,15 +1315,16 @@ function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
           {isUser ? "你" : agent?.name ?? "智能体"}
           {!isUser && agent?.handle ? <span className="ml-2 font-mono">{agent.handle}</span> : null}
         </div>
-        {!isUser && m.dispatch?.items?.length ? (
-          <details className="rounded-lg border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+        {!isUser && m.dispatch ? (
+          <details open className="rounded-lg border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
             <summary className="cursor-pointer select-none">
               编排详情
               {m.dispatch.strategy ? `（${m.dispatch.strategy}）` : ""}
             </summary>
             <div className="mt-2 space-y-2">
               {m.dispatch.mode ? <div>mode: <span className="font-mono">{m.dispatch.mode}</span></div> : null}
-                {m.dispatch.items.map((it, idx) => (
+              {m.dispatch.items.length ? (
+                m.dispatch.items.map((it, idx) => (
                   <div key={`${it.agent}-${idx}`} className="space-y-1">
                     <div>
                       <span className="font-mono">@{it.agent}</span>
@@ -1305,7 +1337,10 @@ function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
                       </div>
                     ) : null}
                   </div>
-                ))}
+                ))
+              ) : (
+                <div className="text-muted-foreground">编排中…</div>
+              )}
               {m.dispatch.debug ? (
                 <pre className="max-h-40 overflow-auto rounded-md bg-muted/30 p-2 text-[11px] leading-5">
                   {JSON.stringify(m.dispatch.debug, null, 2)}
