@@ -302,8 +302,8 @@ export function ChatClient() {
     restoreScrollFnsRef.current = null
 
     type ScrollFn = {
-      (...args: [ScrollToOptions]): void
-      (...args: [number, number]): void
+      (options: ScrollToOptions): void
+      (x: number, y: number): void
     }
 
     const viewportWithPatched = viewport as unknown as { scrollTo: ScrollFn; scrollBy?: ScrollFn }
@@ -318,16 +318,26 @@ export function ChatClient() {
     }
 
     viewportWithPatched.scrollTo = ((...args: [ScrollToOptions] | [number, number]) => {
-      if (allowSmoothScrollRef.current) return origScrollTo(...args)
-      if (args.length === 1) return origScrollTo(patchOptions(args[0]))
-      return origScrollTo(...args)
+      if (args.length === 1) {
+        const opt = args[0]
+        if (allowSmoothScrollRef.current) return origScrollTo(opt)
+        return origScrollTo(patchOptions(opt))
+      }
+      const x = args[0]
+      const y = args[1]
+      return origScrollTo(x, y)
     }) as unknown as ScrollFn
 
     if (origScrollBy) {
       viewportWithPatched.scrollBy = ((...args: [ScrollToOptions] | [number, number]) => {
-        if (allowSmoothScrollRef.current) return origScrollBy(...args)
-        if (args.length === 1) return origScrollBy(patchOptions(args[0]))
-        return origScrollBy(...args)
+        if (args.length === 1) {
+          const opt = args[0]
+          if (allowSmoothScrollRef.current) return origScrollBy(opt)
+          return origScrollBy(patchOptions(opt))
+        }
+        const x = args[0]
+        const y = args[1]
+        return origScrollBy(x, y)
       }) as unknown as ScrollFn
     }
 
