@@ -43,12 +43,28 @@ import { clearAccessToken, getAccessToken } from "@/lib/auth-storage"
 
 type Role = "user" | "assistant"
 
+type DispatchPlanItem = {
+  agent: string
+  agent_name?: string
+  text: string
+  reason?: string
+}
+
+type DispatchDebug = {
+  mode?: string
+  strategy?: string
+  debug?: unknown
+  items: DispatchPlanItem[]
+}
+
 type ChatMessage = {
   id: string
   role: Role
   agentId?: number
   content: string
   createdAt: number
+  // Orchestrator routing/debug info for UI display only (NOT persisted to DB).
+  dispatch?: DispatchDebug
 }
 
 type Conversation = {
@@ -156,28 +172,43 @@ function buildDispatchPlan(
   return { items, sessionAgentId: items[0]?.agent.id ?? null }
 }
 
-async function routeAgentsByBackend(text: string) {
+async function routePlanByBackend(text: string): Promise<DispatchDebug> {
   const res = await apiFetch<{
     ok: boolean
     agents?: string[]
-    items?: { agent: string; text: string }[]
+    items?: { agent: string; agent_name?: string; text: string; reason?: string }[]
     mode?: string
+    strategy?: string
+    debug?: unknown
   }>("/routing/plan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   })
 
+  let items: DispatchPlanItem[] = []
   if (Array.isArray(res.items) && res.items.length) {
-    return res.items
+    items = res.items
       .filter((it) => it && typeof it.agent === "string")
-      .map((it) => ({ agent: it.agent, text: typeof it.text === "string" ? it.text : "" }))
+      .map((it) => ({
+        agent: String(it.agent || "").trim(),
+        agent_name: typeof it.agent_name === "string" ? it.agent_name : undefined,
+        text: typeof it.text === "string" ? it.text : "",
+        reason: typeof it.reason === "string" ? it.reason : undefined,
+      }))
       .filter((it) => it.agent.trim())
+  } else {
+    // Backward compatible: older backend returns only agent codes.
+    const agents = Array.isArray(res.agents) ? res.agents : []
+    items = agents.map((agent) => ({ agent, text }))
   }
 
-  // Backward compatible: older backend returns only agent codes.
-  const agents = Array.isArray(res.agents) ? res.agents : []
-  return agents.map((agent) => ({ agent, text }))
+  return {
+    mode: typeof res.mode === "string" ? res.mode : undefined,
+    strategy: typeof res.strategy === "string" ? res.strategy : undefined,
+    debug: res.debug,
+    items,
+  }
 }
 
 function makeTitleFromFirstUserMessage(content: string) {
@@ -704,10 +735,13 @@ export function ChatClient() {
     try {
       let items: { agent: Agent; text: string }[] = []
       let sessionAgentId: number | null = null
+      let dispatch: DispatchDebug | null = null
 
       // Prefer backend router so Web & WeCom/OpenClaw share the same dispatch plan (items: [{agent,text}]).
       try {
-        const routedItems = await routeAgentsByBackend(content)
+        const plan0 = await routePlanByBackend(content)
+        dispatch = plan0
+        const routedItems = plan0.items
         const routed: { agent: Agent; text: string }[] = []
         const multi = routedItems.length > 1
         for (const it of routedItems) {
@@ -735,6 +769,11 @@ export function ChatClient() {
       const plan = buildDispatchPlan(content, agents, active.defaultAgentId ?? agents[0]?.id ?? null)
       items = plan.items
       sessionAgentId = plan.sessionAgentId
+      dispatch = {
+        mode: "client",
+        strategy: "client_fallback",
+        items: items.map((it) => ({ agent: it.agent.code || it.agent.name, agent_name: it.agent.name, text: it.text })),
+      }
     }
 
     if (!items.length) {
@@ -776,6 +815,7 @@ export function ChatClient() {
       id: pendingId,
       role: "assistant",
       agentId: items.length === 1 ? items[0]!.agent.id : undefined,
+      dispatch: dispatch ?? undefined,
       content:
         items.length === 1
           ? `正在调用智能体 ${items[0]!.agent.name} …`
@@ -822,6 +862,7 @@ export function ChatClient() {
         id: pendingId,
         role: "assistant",
         agentId: items.length === 1 ? items[0]!.agent.id : undefined,
+        dispatch: dispatch ?? undefined,
         content: combined,
         createdAt: Date.now(),
       }
@@ -878,6 +919,7 @@ export function ChatClient() {
         id: pendingId,
         role: "assistant",
         agentId: items.length === 1 ? items[0]!.agent.id : undefined,
+        dispatch: dispatch ?? undefined,
         content: `Agent Service 调用失败：${e instanceof Error ? e.message : String(e)}`,
         createdAt: Date.now(),
       }
@@ -1172,6 +1214,31 @@ function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
           {isUser ? "你" : agent?.name ?? "智能体"}
           {!isUser && agent?.handle ? <span className="ml-2 font-mono">{agent.handle}</span> : null}
         </div>
+        {!isUser && m.dispatch?.items?.length ? (
+          <details className="rounded-lg border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+            <summary className="cursor-pointer select-none">
+              编排详情
+              {m.dispatch.strategy ? `（${m.dispatch.strategy}）` : ""}
+            </summary>
+            <div className="mt-2 space-y-2">
+              {m.dispatch.mode ? <div>mode: <span className="font-mono">{m.dispatch.mode}</span></div> : null}
+              {m.dispatch.items.map((it, idx) => (
+                <div key={`${it.agent}-${idx}`} className="space-y-1">
+                  <div>
+                    <span className="font-mono">@{it.agent}</span>
+                    {it.agent_name ? <span className="ml-2">({it.agent_name})</span> : null}：{it.text || "（空）"}
+                  </div>
+                  {it.reason ? <div className="text-muted-foreground">原因：{it.reason}</div> : null}
+                </div>
+              ))}
+              {m.dispatch.debug ? (
+                <pre className="max-h-40 overflow-auto rounded-md bg-muted/30 p-2 text-[11px] leading-5">
+                  {JSON.stringify(m.dispatch.debug, null, 2)}
+                </pre>
+              ) : null}
+            </div>
+          </details>
+        ) : null}
         <div
           className={[
             "whitespace-pre-wrap rounded-xl border px-3 py-2 text-sm leading-6",
