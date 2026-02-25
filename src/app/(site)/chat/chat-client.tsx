@@ -333,6 +333,7 @@ export function ChatClient() {
   const [historyLoading, setHistoryLoading] = React.useState(false)
   const [historyError, setHistoryError] = React.useState<string | null>(null)
   const [sessionsLoaded, setSessionsLoaded] = React.useState(false)
+  const [sessionsReloadKey, setSessionsReloadKey] = React.useState(0)
   const [creatingSession, setCreatingSession] = React.useState(false)
   const [renamingId, setRenamingId] = React.useState<string | null>(null)
   const [renameValue, setRenameValue] = React.useState("")
@@ -466,6 +467,7 @@ export function ChatClient() {
   React.useEffect(() => {
     const handleAuthToken = () => {
       setSessionsLoaded(false)
+      setSessionsReloadKey((prev) => prev + 1)
       setHistoryError(null)
       setHistoryLoading(false)
       setConversations([])
@@ -516,7 +518,7 @@ export function ChatClient() {
       }
     }
     loadSessions()
-  }, [sessionsLoaded])
+  }, [sessionsLoaded, sessionsReloadKey])
 
   React.useEffect(() => {
     async function loadHistory() {
