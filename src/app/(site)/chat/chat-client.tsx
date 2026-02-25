@@ -1034,7 +1034,6 @@ export function ChatClient() {
           }
         })
       )
-    }
     } finally {
       sendLockRef.current = false
       setSending(false)
