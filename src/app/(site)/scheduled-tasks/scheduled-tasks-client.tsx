@@ -451,7 +451,7 @@ export function ScheduledTasksClient() {
               ) : (
                 runs.map((r) => (
                   <div key={r.id} className="rounded-lg border bg-background p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2 text-sm">
                         <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", statusTone(r.status))}>
                           {r.status}
@@ -464,7 +464,9 @@ export function ScheduledTasksClient() {
                         </span>
                       </div>
                       {r.trace_id ? (
-                        <span className="font-mono text-[11px] text-muted-foreground">trace {r.trace_id}</span>
+                        <span className="min-w-0 max-w-full break-all font-mono text-[11px] text-muted-foreground">
+                          trace {r.trace_id}
+                        </span>
                       ) : null}
                     </div>
 
@@ -475,7 +477,7 @@ export function ScheduledTasksClient() {
                     ) : null}
 
                     {r.result && Object.keys(r.result).length ? (
-                      <pre className="mt-2 overflow-auto rounded-md border bg-muted/20 p-2 text-xs">
+                      <pre className="mt-2 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/20 p-2 text-xs">
                         {JSON.stringify(r.result, null, 2)}
                       </pre>
                     ) : null}
