@@ -36,7 +36,15 @@ function fmt(iso: string | null | undefined) {
   const normalized = !hasTz && looksIsoNoTz ? `${s}Z` : s
   const d = new Date(normalized)
   if (Number.isNaN(d.getTime())) return String(iso)
-  return d.toLocaleString()
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(d)
 }
 
 type TaskForm = {
@@ -54,7 +62,7 @@ const EMPTY_FORM: TaskForm = {
   enabled: true,
   schedule_type: "interval",
   schedule_expr: "60",
-  timezone: "UTC",
+  timezone: "Asia/Shanghai",
   text: "",
   once_at: "",
 }
@@ -66,7 +74,7 @@ function taskToForm(t: ScheduledTask): TaskForm {
     enabled: !!t.enabled,
     schedule_type: (t.schedule_type as TaskForm["schedule_type"]) || "cron",
     schedule_expr: t.schedule_expr ?? "",
-    timezone: t.timezone ?? "UTC",
+    timezone: t.timezone ?? "Asia/Shanghai",
     text: typeof payload.text === "string" ? payload.text : "",
     once_at: "",
   }
@@ -165,7 +173,7 @@ export function ScheduledTasksClient() {
         enabled: form.enabled,
         schedule_type: form.schedule_type,
         schedule_expr: form.schedule_expr.trim(),
-        timezone: form.timezone.trim() || "UTC",
+        timezone: editing ? form.timezone.trim() || "Asia/Shanghai" : "Asia/Shanghai",
         payload: buildPayload(form),
         next_run_at: nextRunAt,
       }
@@ -311,14 +319,16 @@ export function ScheduledTasksClient() {
                     )}
                   </div>
 
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">Timezone</div>
-                    <Input
-                      value={form.timezone}
-                      onChange={(e) => setForm((p) => ({ ...p, timezone: e.target.value }))}
-                      placeholder="UTC / Asia/Shanghai"
-                    />
-                  </div>
+                  {editing ? (
+                    <div className="space-y-2">
+                      <div className="text-sm font-medium">Timezone</div>
+                      <Input
+                        value={form.timezone}
+                        onChange={(e) => setForm((p) => ({ ...p, timezone: e.target.value }))}
+                        placeholder="Asia/Shanghai"
+                      />
+                    </div>
+                  ) : null}
 
                   <div className="space-y-2 sm:col-span-2">
                     <div className="text-sm font-medium">payload.text</div>
@@ -383,7 +393,7 @@ export function ScheduledTasksClient() {
                           </>
                         ) : null}
                         {" "}
-                        · tz <span className="font-mono">{t.timezone || "UTC"}</span>
+                        · tz <span className="font-mono">{t.timezone || "Asia/Shanghai"}</span>
                       </div>
                       <div className="text-xs text-muted-foreground">
                         next: <span className="font-mono">{fmt(t.next_run_at)}</span> · last:{" "}
