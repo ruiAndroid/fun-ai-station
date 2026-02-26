@@ -41,9 +41,6 @@ type TaskForm = {
   schedule_expr: string
   timezone: string
   text: string
-  default_agent: string
-  mode: string
-  forced_agent: string
   once_at: string // datetime-local
 }
 
@@ -54,9 +51,6 @@ const EMPTY_FORM: TaskForm = {
   schedule_expr: "60",
   timezone: "UTC",
   text: "",
-  default_agent: "",
-  mode: "hybrid",
-  forced_agent: "",
   once_at: "",
 }
 
@@ -69,9 +63,6 @@ function taskToForm(t: ScheduledTask): TaskForm {
     schedule_expr: t.schedule_expr ?? "",
     timezone: t.timezone ?? "UTC",
     text: typeof payload.text === "string" ? payload.text : "",
-    default_agent: typeof payload.default_agent === "string" ? payload.default_agent : "",
-    mode: typeof payload.mode === "string" ? payload.mode : "hybrid",
-    forced_agent: typeof payload.forced_agent === "string" ? payload.forced_agent : "",
     once_at: "",
   }
 }
@@ -79,10 +70,7 @@ function taskToForm(t: ScheduledTask): TaskForm {
 function buildPayload(form: TaskForm) {
   const payload: Record<string, unknown> = {
     text: form.text,
-    mode: form.mode,
   }
-  if (form.default_agent.trim()) payload.default_agent = form.default_agent.trim()
-  if (form.forced_agent.trim()) payload.forced_agent = form.forced_agent.trim()
   payload.context = {}
   return payload
 }
@@ -224,7 +212,7 @@ export function ScheduledTasksClient() {
         <div className="text-xs text-muted-foreground">自动化</div>
         <h1 className="text-2xl font-semibold tracking-tight">定时任务</h1>
         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-          到点后将触发后端编排执行（/dispatch/execute）。建议先用 interval 任务做联调测试。
+          到点后将触发后端编排执行（/dispatch/execute）。为避免错乱，暂不支持强制指定智能体。
         </p>
       </div>
 
@@ -313,37 +301,6 @@ export function ScheduledTasksClient() {
                       value={form.timezone}
                       onChange={(e) => setForm((p) => ({ ...p, timezone: e.target.value }))}
                       placeholder="UTC / Asia/Shanghai"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">Mode</div>
-                    <select
-                      value={form.mode}
-                      onChange={(e) => setForm((p) => ({ ...p, mode: e.target.value }))}
-                      className="border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                    >
-                      <option value="hybrid">hybrid</option>
-                      <option value="llm">llm</option>
-                      <option value="keywords">keywords</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">Default Agent（可选）</div>
-                    <Input
-                      value={form.default_agent}
-                      onChange={(e) => setForm((p) => ({ ...p, default_agent: e.target.value }))}
-                      placeholder="attendance"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">Forced Agent（可选）</div>
-                    <Input
-                      value={form.forced_agent}
-                      onChange={(e) => setForm((p) => ({ ...p, forced_agent: e.target.value }))}
-                      placeholder="填写后会强制执行指定 agent"
                     />
                   </div>
 
