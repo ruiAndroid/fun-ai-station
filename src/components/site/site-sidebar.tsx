@@ -1,9 +1,17 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { BotIcon, HomeIcon, MessagesSquareIcon, PlusIcon, SettingsIcon, SparklesIcon } from "lucide-react"
+import {
+  BookOpenIcon,
+  BotIcon,
+  HomeIcon,
+  MessagesSquareIcon,
+  PlusIcon,
+  PuzzleIcon,
+  SettingsIcon,
+  SparklesIcon,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -14,6 +22,8 @@ const NAV_ITEMS: NavItem[] = [
   { label: "发现", href: "/", icon: HomeIcon },
   { label: "对话", href: "/chat", icon: MessagesSquareIcon },
   { label: "Agent", href: "/agents", icon: BotIcon },
+  { label: "Skills", href: "/skills", icon: BookOpenIcon },
+  { label: "Plugins", href: "/plugins", icon: PuzzleIcon },
   { label: "设置", href: "/settings", icon: SettingsIcon },
 ]
 

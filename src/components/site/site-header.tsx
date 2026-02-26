@@ -20,6 +20,12 @@ export function SiteHeader() {
             <Link href="/chat" className="hover:text-foreground">
               Chat
             </Link>
+            <Link href="/skills" className="hover:text-foreground">
+              Skills
+            </Link>
+            <Link href="/plugins" className="hover:text-foreground">
+              Plugins
+            </Link>
           </nav>
           <LoginDialog />
           <ModeToggle />

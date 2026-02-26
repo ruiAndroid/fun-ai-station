@@ -105,6 +105,39 @@ export function DashboardHome() {
           </div>
         )}
       </section>
+
+      <section className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-base font-semibold">扩展</div>
+          <div className="text-xs text-muted-foreground">Skills / Plugins</div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Card className="border-muted/60">
+            <CardHeader>
+              <CardTitle className="text-base">Skills</CardTitle>
+              <CardDescription>可复用能力模块（当前仅前端占位）</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" className="rounded-xl" asChild>
+                <Link href="/skills">进入 Skills</Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="border-muted/60">
+            <CardHeader>
+              <CardTitle className="text-base">Plugins</CardTitle>
+              <CardDescription>外部能力接入（当前仅前端占位）</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" className="rounded-xl" asChild>
+                <Link href="/plugins">进入 Plugins</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
     </div>
   )
 }
