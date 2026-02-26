@@ -1,0 +1,18 @@
+[Unit]
+Description=fun-ai-station-long-scheduler (DB poll + execute long tasks)
+After=network.target mysqld.service fun-agent-service.service
+Requires=mysqld.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/fun-ai-station-api
+ExecStart=/opt/fun-ai-station-api/.venv/bin/python -m src.long_task_worker --poll 2 --batch 10 --lease 600
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+
+StandardOutput=append:/data/funai/logs/fun-ai-station-long-scheduler/out.log
+StandardError=append:/data/funai/logs/fun-ai-station-long-scheduler/err.log
+

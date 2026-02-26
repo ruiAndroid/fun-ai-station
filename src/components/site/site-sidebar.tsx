@@ -7,6 +7,7 @@ import {
   BotIcon,
   CalendarClockIcon,
   HomeIcon,
+  ListChecksIcon,
   MessagesSquareIcon,
   PlusIcon,
   PuzzleIcon,
@@ -26,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Skills", href: "/skills", icon: BookOpenIcon },
   { label: "Plugins", href: "/plugins", icon: PuzzleIcon },
   { label: "定时任务", href: "/scheduled-tasks", icon: CalendarClockIcon },
+  { label: "长任务", href: "/long-tasks", icon: ListChecksIcon },
   { label: "设置", href: "/settings", icon: SettingsIcon },
 ]
 
