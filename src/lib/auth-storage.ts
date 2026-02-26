@@ -13,7 +13,8 @@ export function setAccessToken(token: string) {
 
 export function clearAccessToken() {
   if (typeof window === "undefined") return
+  const existed = window.localStorage.getItem(TOKEN_KEY) != null
   window.localStorage.removeItem(TOKEN_KEY)
-  window.dispatchEvent(new Event("auth:token"))
+  if (existed) window.dispatchEvent(new Event("auth:token"))
 }
 

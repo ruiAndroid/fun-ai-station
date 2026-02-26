@@ -41,6 +41,7 @@ export async function apiFetch<T>(
   const url = path.startsWith("http") ? path : `${base}${path.startsWith("/") ? "" : "/"}${path}`
 
   const token = init.token ?? getAccessToken()
+  const hadToken = !!token
 
   const headers = new Headers(init.headers ?? {})
   if (!headers.has("Accept")) headers.set("Accept", "application/json")
@@ -51,8 +52,8 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") {
-      // Token missing/expired: clear and prompt login globally.
-      clearAccessToken()
+      // Token missing/expired: clear only if it existed (avoid auth:token loops on missing token).
+      if (hadToken) clearAccessToken()
       window.dispatchEvent(new Event("auth:required"))
     }
     const msg = getErrorMessage(res, text)

@@ -26,6 +26,7 @@ import {
   type ScheduledTask,
   type ScheduledTaskRun,
 } from "@/lib/scheduled-tasks"
+import { getAccessToken } from "@/lib/auth-storage"
 
 function fmt(iso: string | null | undefined) {
   if (!iso) return "—"
@@ -99,6 +100,11 @@ export function ScheduledTasksClient() {
   const [runsError, setRunsError] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
+    if (!getAccessToken()) {
+      setTasks([])
+      setError("请先登录后查看定时任务")
+      return
+    }
     setLoading(true)
     try {
       const data = await listScheduledTasks()
@@ -113,6 +119,12 @@ export function ScheduledTasksClient() {
   }, [])
 
   React.useEffect(() => {
+    if (!getAccessToken()) {
+      window.dispatchEvent(new Event("auth:required"))
+      setTasks([])
+      setError("请先登录后查看定时任务")
+      return
+    }
     load()
     const onToken = () => load()
     window.addEventListener("auth:token", onToken)
