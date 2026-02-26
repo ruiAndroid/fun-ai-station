@@ -3,6 +3,8 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/fun-ai-station-api}"
 SERVICE_NAME="${SERVICE_NAME:-fun-ai-station-api}"
+SCHED_SERVICE_NAME="${SCHED_SERVICE_NAME:-fun-ai-station-scheduler}"
+SCHED_LOG_DIR="${SCHED_LOG_DIR:-/data/funai/logs/fun-ai-station-scheduler}"
 
 echo "[api] cd $APP_DIR"
 cd "$APP_DIR"
@@ -39,6 +41,16 @@ echo "[api] restart systemd: $SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
 systemctl --no-pager --full status "$SERVICE_NAME" || true
 
+if systemctl list-unit-files | grep -q "^${SCHED_SERVICE_NAME}\\.service"; then
+  echo "[api] ensure scheduler log dir: $SCHED_LOG_DIR"
+  mkdir -p "$SCHED_LOG_DIR" || true
+
+  echo "[api] restart systemd: $SCHED_SERVICE_NAME"
+  systemctl restart "$SCHED_SERVICE_NAME"
+  systemctl --no-pager --full status "$SCHED_SERVICE_NAME" || true
+else
+  echo "[api] WARN: $SCHED_SERVICE_NAME not installed (skipping restart)"
+fi
+
 echo "[api] health (local): http://127.0.0.1:8001/health"
 curl -fsS http://127.0.0.1:8001/health >/dev/null && echo "[api] OK" || echo "[api] WARN: health check failed"
-

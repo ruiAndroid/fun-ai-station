@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import {
   BookOpenIcon,
   BotIcon,
+  CalendarClockIcon,
   HomeIcon,
   MessagesSquareIcon,
   PlusIcon,
@@ -24,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Agent", href: "/agents", icon: BotIcon },
   { label: "Skills", href: "/skills", icon: BookOpenIcon },
   { label: "Plugins", href: "/plugins", icon: PuzzleIcon },
+  { label: "定时任务", href: "/scheduled-tasks", icon: CalendarClockIcon },
   { label: "设置", href: "/settings", icon: SettingsIcon },
 ]
 

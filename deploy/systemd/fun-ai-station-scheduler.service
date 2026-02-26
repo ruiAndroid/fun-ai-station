@@ -1,0 +1,18 @@
+[Unit]
+Description=fun-ai-station-scheduler (DB poll + trigger orchestrator)
+After=network.target mysqld.service fun-agent-service.service
+Requires=mysqld.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/fun-ai-station-api
+ExecStart=/opt/fun-ai-station-api/.venv/bin/python -m src.scheduler_worker --poll 5 --batch 10 --lease 120
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+
+StandardOutput=append:/data/funai/logs/fun-ai-station-scheduler/out.log
+StandardError=append:/data/funai/logs/fun-ai-station-scheduler/err.log
+

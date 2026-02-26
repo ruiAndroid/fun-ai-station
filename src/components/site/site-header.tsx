@@ -26,6 +26,9 @@ export function SiteHeader() {
             <Link href="/plugins" className="hover:text-foreground">
               Plugins
             </Link>
+            <Link href="/scheduled-tasks" className="hover:text-foreground">
+              定时任务
+            </Link>
           </nav>
           <LoginDialog />
           <ModeToggle />
