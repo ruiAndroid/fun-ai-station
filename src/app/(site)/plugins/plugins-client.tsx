@@ -12,18 +12,15 @@ type PluginItem = {
   provider?: string
 }
 
-const MOCK_PLUGINS: PluginItem[] = [
-  { name: "plugin: http", description: "发起 HTTP 请求并结构化返回（占位）", provider: "builtin" },
-  { name: "plugin: filesystem", description: "读写本地文件与目录（占位）", provider: "builtin" },
-]
+const PLUGINS: PluginItem[] = []
 
 export function PluginsClient() {
   const [q, setQ] = React.useState("")
 
   const filtered = React.useMemo(() => {
     const query = q.trim().toLowerCase()
-    if (!query) return MOCK_PLUGINS
-    return MOCK_PLUGINS.filter((p) => `${p.name} ${p.description} ${p.provider ?? ""}`.toLowerCase().includes(query))
+    if (!query) return PLUGINS
+    return PLUGINS.filter((p) => `${p.name} ${p.description} ${p.provider ?? ""}`.toLowerCase().includes(query))
   }, [q])
 
   return (
@@ -54,7 +51,7 @@ export function PluginsClient() {
         <CardContent className="space-y-3">
           {filtered.length === 0 ? (
             <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
-              未找到匹配的 Plugin。
+              暂无 Plugins（后续接入后端后展示）。
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -88,4 +85,3 @@ export function PluginsClient() {
     </div>
   )
 }
-

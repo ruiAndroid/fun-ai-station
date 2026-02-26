@@ -12,18 +12,15 @@ type SkillItem = {
   version?: string
 }
 
-const MOCK_SKILLS: SkillItem[] = [
-  { name: "skill: web-search", description: "联网检索与来源引用（占位）", version: "0.1.0" },
-  { name: "skill: sql-helper", description: "SQL 生成 / 优化 / 解释（占位）", version: "0.1.0" },
-]
+const SKILLS: SkillItem[] = []
 
 export function SkillsClient() {
   const [q, setQ] = React.useState("")
 
   const filtered = React.useMemo(() => {
     const query = q.trim().toLowerCase()
-    if (!query) return MOCK_SKILLS
-    return MOCK_SKILLS.filter((s) => `${s.name} ${s.description}`.toLowerCase().includes(query))
+    if (!query) return SKILLS
+    return SKILLS.filter((s) => `${s.name} ${s.description}`.toLowerCase().includes(query))
   }, [q])
 
   return (
@@ -54,7 +51,7 @@ export function SkillsClient() {
         <CardContent className="space-y-3">
           {filtered.length === 0 ? (
             <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
-              未找到匹配的 Skill。
+              暂无 Skills（后续接入后端后展示）。
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -88,4 +85,3 @@ export function SkillsClient() {
     </div>
   )
 }
-
