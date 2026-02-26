@@ -24,6 +24,10 @@ LLM 的具体参数（`base_url/api_key/model/timeout`）放在 `LLM_CONFIG_PATH
 
 使用：`fun-ai-station-api/configs/fun-ai-station-api.env`
 
+补充：
+- Fallback 编排支持依赖感知并行（depends_on 满足即可并行）。
+- `DISPATCH_MAX_PARALLEL`：API 侧 fallback 最大并行度，默认 3；设为 1 退回串行。
+
 #### Web（Next.js）
 
 Next.js 的 `NEXT_PUBLIC_*` 变量是在 **build 时注入** 的，建议：
