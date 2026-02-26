@@ -30,7 +30,11 @@ import { getAccessToken } from "@/lib/auth-storage"
 
 function fmt(iso: string | null | undefined) {
   if (!iso) return "—"
-  const d = new Date(iso)
+  const s = String(iso)
+  const hasTz = /([zZ]|[+-]\d{2}:\d{2})$/.test(s)
+  const looksIsoNoTz = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(s)
+  const normalized = !hasTz && looksIsoNoTz ? `${s}Z` : s
+  const d = new Date(normalized)
   if (Number.isNaN(d.getTime())) return String(iso)
   return d.toLocaleString()
 }
