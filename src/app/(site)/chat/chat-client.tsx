@@ -174,7 +174,7 @@ function buildDispatchPlan(
   return { items, sessionAgentId: items[0]?.agent.id ?? null }
 }
 
-async function routePlanByBackend(text: string): Promise<DispatchDebug> {
+async function routePlanByBackend(text: string, opts: { defaultAgentCode?: string | null } = {}): Promise<DispatchDebug> {
   const res = await apiFetch<{
     ok: boolean
     agents?: string[]
@@ -185,7 +185,7 @@ async function routePlanByBackend(text: string): Promise<DispatchDebug> {
   }>("/routing/plan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, default_agent: opts.defaultAgentCode ?? undefined }),
   })
 
   let items: DispatchPlanItem[] = []
@@ -822,7 +822,9 @@ export function ChatClient() {
     try {
       // Prefer backend router so Web & WeCom/OpenClaw share the same dispatch plan (items: [{agent,text}]).
       try {
-        const plan0 = await routePlanByBackend(content)
+        const fallbackAgent =
+          findAgentById(agents, active.defaultAgentId ?? agents[0]?.id ?? null)
+        const plan0 = await routePlanByBackend(content, { defaultAgentCode: fallbackAgent?.code })
         dispatch = plan0
         const routedItems = plan0.items
         const routed: { agent: Agent; text: string; depends_on?: string[] }[] = []
