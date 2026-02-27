@@ -47,3 +47,8 @@ export async function cancelLongTask(id: number) {
   })
 }
 
+export async function deleteLongTask(id: number) {
+  return await apiFetch<{ ok: boolean }>(`/long-tasks/${id}`, {
+    method: "DELETE",
+  })
+}

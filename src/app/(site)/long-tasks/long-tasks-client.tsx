@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { RefreshCwIcon, RocketIcon, XIcon } from "lucide-react"
+import { RefreshCwIcon, RocketIcon, Trash2Icon, XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils"
 import {
   cancelLongTask,
   createLongTaskOrchestratorExecute,
+  deleteLongTask,
   listLongTasks,
   type LongTask,
 } from "@/lib/long-tasks"
@@ -139,6 +140,16 @@ export function LongTasksClient() {
     }
   }
 
+  async function remove(t: LongTask) {
+    if (!window.confirm(`确认删除长任务「${t.title || `Task #${t.id}`}」吗？`)) return
+    try {
+      await deleteLongTask(t.id)
+      setTasks((prev) => prev.filter((x) => x.id !== t.id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -222,6 +233,7 @@ export function LongTasksClient() {
             <div className="grid gap-3">
               {tasks.map((t) => {
                 const canCancel = ["pending", "running"].includes((t.status || "").toLowerCase()) && !t.cancel_requested
+                const canDelete = (t.status || "").toLowerCase() !== "running"
                 return (
                   <div key={t.id} className="rounded-xl border bg-background p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -277,6 +289,12 @@ export function LongTasksClient() {
                             取消
                           </Button>
                         ) : null}
+                        {canDelete ? (
+                          <Button size="sm" variant="outline" className="rounded-xl" onClick={() => remove(t)}>
+                            <Trash2Icon className="size-4" />
+                            删除
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
 
@@ -295,4 +313,3 @@ export function LongTasksClient() {
     </div>
   )
 }
-

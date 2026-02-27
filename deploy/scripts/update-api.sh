@@ -8,6 +8,9 @@ SCHED_LOG_DIR="${SCHED_LOG_DIR:-/data/funai/logs/fun-ai-station-scheduler}"
 LONG_SCHED_SERVICE_NAME="${LONG_SCHED_SERVICE_NAME:-fun-ai-station-long-scheduler}"
 LONG_SCHED_LOG_DIR="${LONG_SCHED_LOG_DIR:-/data/funai/logs/fun-ai-station-long-scheduler}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 ensure_systemd_unit() {
   local unit_name="$1"
   local unit_template="$2"
@@ -16,8 +19,13 @@ ensure_systemd_unit() {
     return 0
   fi
 
+  # Prefer template under APP_DIR, fallback to template next to this script.
   if [[ ! -f "$unit_template" ]]; then
-    echo "[api] WARN: systemd unit template not found: $unit_template (skipping install)"
+    unit_template="$DEPLOY_DIR/systemd/${unit_name}.service"
+  fi
+
+  if [[ ! -f "$unit_template" ]]; then
+    echo "[api] WARN: systemd unit template not found (skipping install): $unit_name"
     return 0
   fi
 
