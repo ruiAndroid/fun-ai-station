@@ -838,7 +838,7 @@ export function ChatClient() {
           ...c,
           updatedAt: Date.now(),
           messages: c.messages.map((m) =>
-            m.id === pendingId ? { ...m, content: "正在制定计划…", dispatch: dispatch ?? undefined } : m
+            m.id === pendingId ? { ...m, content: "正在思考…", dispatch: dispatch ?? undefined } : m
           ),
         }
       })
