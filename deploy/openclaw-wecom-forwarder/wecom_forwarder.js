@@ -12,7 +12,7 @@ const WECOM_AES_KEY = process.env.WECOM_AES_KEY; // 43 chars, base64 (no '=')
 // Your fun-ai-station-api webhook
 const API_URL = process.env.API_URL; // http(s)://<域名或IP>/api/webhooks/openclaw
 const API_SECRET = process.env.API_SECRET; // OPENCLAW_WEBHOOK_SECRET (same as API side)
-const DEFAULT_AGENT = process.env.AGENT || "attendance";
+const DEFAULT_AGENT = process.env.AGENT || "general";
 
 if (!WECOM_TOKEN || !WECOM_AES_KEY || !API_URL || !API_SECRET) {
   console.error("Missing env: WECOM_TOKEN / WECOM_AES_KEY / API_URL / API_SECRET");
@@ -178,4 +178,3 @@ http
       `wecom-forwarder listening on http://${LISTEN_HOST}:${LISTEN_PORT}`
     );
   });
-

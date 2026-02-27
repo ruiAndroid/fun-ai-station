@@ -99,7 +99,7 @@ Payload（JSON）：
 ```json
 {
   "event_id": "MsgId 或 encrypt 的 hash",
-  "agent": "DEFAULT_AGENT（默认 attendance）",
+  "agent": "DEFAULT_AGENT（默认 general）",
   "text": "文本内容或降级文本",
   "context": {
     "channel": "wecom",
@@ -133,7 +133,7 @@ Payload（JSON）：
 - `WECOM_AES_KEY`：企业微信 encodingAESKey（43 chars，无 `=`；代码里会补一个 `=` 再 base64 解码）
 - `API_URL`：`fun-ai-station-api` 的 OpenClaw webhook 地址（如：`https://example.com/api/webhooks/openclaw`）
 - `API_SECRET`：与 `fun-ai-station-api` 的 `OPENCLAW_WEBHOOK_SECRET` 一致
-- `AGENT`（可选）：默认 agent code，缺省为 `attendance`
+- `AGENT`（可选）：默认 agent code，缺省为 `general`
 
 示例见：`deploy/openclaw-wecom-forwarder/env.example`
 
@@ -173,4 +173,3 @@ Payload（JSON）：
 - 将 `wecom_forwarder.js` 同步到服务器 `/opt/openclaw-wecom-forwarder/`
 - 将 env 放到 `/opt/openclaw-wecom-forwarder/.env`（仅示例，按你的安全策略调整）
 - 用 systemd 管理生命周期与日志
-

@@ -65,7 +65,7 @@ Next.js 的 `NEXT_PUBLIC_*` 变量是在 **build 时注入** 的，建议：
 
 - `OPENCLAW_WEBHOOK_SECRET`：转发签名密钥（务必改成强随机字符串）
 - `OPENCLAW_MAX_SKEW_SECONDS`：允许的时间戳偏移（默认 300 秒）
-- `OPENCLAW_DEFAULT_AGENT`：未指定 agent 时的默认智能体（默认 `attendance`）
+- `OPENCLAW_DEFAULT_AGENT`：未指定 agent 时的默认智能体（默认 `general`）
 
 openclaw 发请求时需要带上请求头：
 
@@ -81,7 +81,7 @@ openclaw 发请求时需要带上请求头：
 ```json
 {
   "event_id": "unique-message-id",
-  "agent": "attendance",
+  "agent": "general",
   "text": "用户发来的消息内容",
   "context": {
     "channel": "wecom",
