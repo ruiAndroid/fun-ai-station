@@ -103,6 +103,7 @@ export function ScheduledTasksClient() {
   const [openEditor, setOpenEditor] = React.useState(false)
   const [editing, setEditing] = React.useState<ScheduledTask | null>(null)
   const [form, setForm] = React.useState<TaskForm>(EMPTY_FORM)
+  const [editorError, setEditorError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
 
   const [openRuns, setOpenRuns] = React.useState(false)
@@ -146,18 +147,20 @@ export function ScheduledTasksClient() {
   function openCreate() {
     setEditing(null)
     setForm(EMPTY_FORM)
+    setEditorError(null)
     setOpenEditor(true)
   }
 
   function openEdit(t: ScheduledTask) {
     setEditing(t)
     setForm(taskToForm(t))
+    setEditorError(null)
     setOpenEditor(true)
   }
 
   async function save() {
     if (!form.name.trim()) {
-      setError("请填写任务名称")
+      setEditorError("请填写任务名称")
       return
     }
 
@@ -166,17 +169,18 @@ export function ScheduledTasksClient() {
       let seconds = Number.parseInt(s, 10)
       const minSeconds = 10
       if (!Number.isFinite(seconds)) {
-        setError("interval 需要填写整数秒数")
+        setEditorError("interval 需要填写整数秒数")
         return
       }
       if (seconds <= 0) seconds = 60
       if (seconds < minSeconds) {
-        setError(`interval 不能小于 ${minSeconds}s`)
+        setEditorError(`interval 不能小于 ${minSeconds}s`)
         return
       }
     }
 
     setSaving(true)
+    setEditorError(null)
     try {
       const nextRunAt =
         form.schedule_type === "once" && form.once_at
@@ -203,8 +207,9 @@ export function ScheduledTasksClient() {
 
       setOpenEditor(false)
       setError(null)
+      setEditorError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setEditorError(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
     }
@@ -273,7 +278,13 @@ export function ScheduledTasksClient() {
               刷新
             </Button>
 
-            <Dialog open={openEditor} onOpenChange={setOpenEditor}>
+            <Dialog
+              open={openEditor}
+              onOpenChange={(open) => {
+                setOpenEditor(open)
+                if (!open) setEditorError(null)
+              }}
+            >
               <DialogTrigger asChild>
                 <Button className="rounded-xl" onClick={openCreate}>
                   <CalendarClockIcon className="size-4" />
@@ -285,6 +296,12 @@ export function ScheduledTasksClient() {
                   <DialogTitle>{editing ? "编辑定时任务" : "新建定时任务"}</DialogTitle>
                   <DialogDescription>最小必填：名称 + 触发规则 + payload.text</DialogDescription>
                 </DialogHeader>
+
+                {editorError ? (
+                  <div className="rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">
+                    {editorError}
+                  </div>
+                ) : null}
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2 sm:col-span-2">

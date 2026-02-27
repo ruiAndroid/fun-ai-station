@@ -15,7 +15,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import {
@@ -235,7 +234,7 @@ export function LongTasksClient() {
                 const canCancel = ["pending", "running"].includes((t.status || "").toLowerCase()) && !t.cancel_requested
                 const canDelete = (t.status || "").toLowerCase() !== "running"
                 return (
-                  <div key={t.id} className="rounded-xl border bg-background p-4">
+                  <div key={t.id} className="w-full min-w-0 overflow-hidden rounded-xl border bg-background p-4">
                     <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
@@ -299,11 +298,9 @@ export function LongTasksClient() {
                     </div>
 
                     {t.result && Object.keys(t.result).length ? (
-                      <ScrollArea className="mt-3 h-[160px] max-w-full rounded-md border">
-                        <pre className="max-w-full whitespace-pre-wrap break-words p-2 text-xs">
-                          {JSON.stringify(t.result, null, 2)}
-                        </pre>
-                      </ScrollArea>
+                      <pre className="mt-3 max-h-[160px] max-w-full overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/20 p-2 text-xs">
+                        {JSON.stringify(t.result, null, 2)}
+                      </pre>
                     ) : null}
                   </div>
                 )
