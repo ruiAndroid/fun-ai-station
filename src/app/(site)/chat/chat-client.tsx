@@ -786,7 +786,7 @@ export function ChatClient() {
 
     let items: { agent: Agent; text: string; depends_on?: string[] }[] = []
     let sessionAgentId: number | null = null
-    let dispatch: DispatchDebug | null = { mode: "planning", strategy: "planning", items: [] }
+    let dispatch: DispatchDebug | null = null
     const pendingId = uid()
 
     const nextTitle = active.title === "新会话" ? makeTitleFromFirstUserMessage(content) : active.title
@@ -799,8 +799,7 @@ export function ChatClient() {
     const pendingMsg: ChatMessage = {
       id: pendingId,
       role: "assistant",
-      dispatch: dispatch ?? undefined,
-      content: "正在编排任务…",
+      content: "正在思考…",
       createdAt: Date.now(),
     }
     setConversations((prev) =>
@@ -818,6 +817,22 @@ export function ChatClient() {
     setDraft("")
     setMention(null)
     queueMicrotask(() => textareaRef.current?.focus())
+
+    // Let the UI render "正在思考…" first, then switch to orchestration status.
+    await Promise.resolve()
+    dispatch = { mode: "planning", strategy: "planning", items: [] }
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== active.id) return c
+        return {
+          ...c,
+          updatedAt: Date.now(),
+          messages: c.messages.map((m) =>
+            m.id === pendingId ? { ...m, content: "正在编排…", dispatch: dispatch ?? undefined } : m
+          ),
+        }
+      })
+    )
 
     try {
       // Prefer backend router so Web & WeCom/OpenClaw share the same dispatch plan (items: [{agent,text}]).
@@ -1319,7 +1334,7 @@ function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
           {!isUser && agent?.handle ? <span className="ml-2 font-mono">{agent.handle}</span> : null}
         </div>
         {!isUser && m.dispatch ? (
-          <details open className="rounded-lg border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+          <details className="rounded-lg border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
             <summary className="cursor-pointer select-none">
               编排详情
               {m.dispatch.strategy ? `（${m.dispatch.strategy}）` : ""}
