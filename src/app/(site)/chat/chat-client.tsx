@@ -26,11 +26,11 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
-import { Textarea } from "@/components/ui/textarea"
-import { apiFetch } from "@/lib/api"
-import { executeAgentServiceAgent } from "@/lib/agent-service"
-import { findAgentById, listAgents, type Agent } from "@/lib/agents"
+ import { Separator } from "@/components/ui/separator"
+ import { Textarea } from "@/components/ui/textarea"
+ import { apiFetch } from "@/lib/api"
+ import { executeAgentServiceAgent, type PendingAction } from "@/lib/agent-service"
+ import { findAgentById, listAgents, type Agent } from "@/lib/agents"
 import {
   createChatMessage,
   createChatSession,
@@ -75,6 +75,8 @@ type Conversation = {
   messages: ChatMessage[]
   updatedAt: number
   backendSessionId?: string
+  pendingAction?: PendingAction | null
+  pendingActionMessageId?: string | null
 }
 
 function uid() {
@@ -503,12 +505,14 @@ export function ChatClient() {
           return
         }
         const mapped = sessions.map((s) => ({
-            id: uid(),
-            title: s.title || "新会话",
-            defaultAgentId: s.agent_id ?? null,
-            updatedAt: new Date(s.updated_at).getTime(),
-            backendSessionId: s.id,
-            messages: [],
+          id: uid(),
+          title: s.title || "新会话",
+          defaultAgentId: s.agent_id ?? null,
+          updatedAt: new Date(s.updated_at).getTime(),
+          backendSessionId: s.id,
+          messages: [],
+          pendingAction: null,
+          pendingActionMessageId: null,
         }))
         setConversations(mapped)
         setActiveId(mapped[0]?.id ?? "")
@@ -693,6 +697,8 @@ export function ChatClient() {
       title: "新会话",
       defaultAgentId,
       updatedAt: Date.now(),
+      pendingAction: null,
+      pendingActionMessageId: null,
       messages: [
         {
           id: uid(),
@@ -782,10 +788,10 @@ export function ChatClient() {
     )
   }
 
-  async function send() {
+  async function send(overrideText?: string) {
     if (!active) return
     if (sendLockRef.current) return
-    const content = draft.trim()
+    const content = (overrideText ?? draft).trim()
     if (!content) return
 
     const sessionId = active.backendSessionId ?? active.id
@@ -936,6 +942,7 @@ export function ChatClient() {
       )
 
       const results: { agent: Agent; output: string; error?: string }[] = []
+      let pendingAction: PendingAction | null = null
       for (let i = 0; i < items.length; i++) {
         const it = items[i]!
         try {
@@ -953,6 +960,9 @@ export function ChatClient() {
               output: r.output,
             })),
           })
+          if (Object.prototype.hasOwnProperty.call(res, "pending_action")) {
+            pendingAction = res.pending_action ?? null
+          }
           results.push({ agent: it.agent, output: res.output ?? "" })
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)
@@ -986,6 +996,9 @@ export function ChatClient() {
               output: r.output,
             })),
           })
+          if (Object.prototype.hasOwnProperty.call(synthRes, "pending_action")) {
+            pendingAction = synthRes.pending_action ?? null
+          }
           if (synthRes?.output) {
             combined = String(synthRes.output || "").trim() || combined
           }
@@ -1004,9 +1017,18 @@ export function ChatClient() {
       setConversations((prev) =>
         prev.map((c) => {
           if (c.id !== active.id) return c
+          const prevActionId = c.pendingAction?.id ?? null
+          const nextActionId = pendingAction?.id ?? null
+          const nextActionMsgId = nextActionId
+            ? prevActionId === nextActionId && c.pendingActionMessageId
+              ? c.pendingActionMessageId
+              : pendingId
+            : null
           return {
             ...c,
             updatedAt: Date.now(),
+            pendingAction: pendingAction ?? null,
+            pendingActionMessageId: nextActionMsgId,
             messages: c.messages.map((m) => (m.id === pendingId ? assistantMsg : m)),
           }
         })
@@ -1255,7 +1277,17 @@ export function ChatClient() {
                   <div className="text-xs text-muted-foreground">历史消息加载失败：{historyError}</div>
                 ) : null}
                 {active?.messages.map((m) => (
-                  <MessageBubble key={m.id} m={m} agents={agents} />
+                  <MessageBubble
+                    key={m.id}
+                    m={m}
+                    agents={agents}
+                    pendingAction={active?.pendingAction ?? null}
+                    showPendingActions={
+                      !!active?.pendingAction && (active?.pendingActionMessageId ?? null) === m.id
+                    }
+                    onQuickSend={(text) => send(text)}
+                    disabled={sending}
+                  />
                 ))}
                 <div ref={messagesEndRef} />
               </div>
@@ -1289,7 +1321,7 @@ export function ChatClient() {
                       <div className="text-xs text-muted-foreground">
                         Enter 换行，Ctrl/⌘ + Enter 发送。可在文本中输入 @ 触发智能体选择。
                       </div>
-                      <Button onClick={send} disabled={!draft.trim() || sending} className="shrink-0">
+                      <Button onClick={() => send()} disabled={!draft.trim() || sending} className="shrink-0">
                         <CornerDownLeftIcon className="size-4" />
                         {sending ? "发送中…" : "发送"}
                       </Button>
@@ -1332,7 +1364,21 @@ export function ChatClient() {
   )
 }
 
-function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
+function MessageBubble({
+  m,
+  agents,
+  pendingAction,
+  showPendingActions,
+  onQuickSend,
+  disabled,
+}: {
+  m: ChatMessage
+  agents: Agent[]
+  pendingAction: PendingAction | null
+  showPendingActions: boolean
+  onQuickSend: (text: string) => void
+  disabled?: boolean
+}) {
   const isUser = m.role === "user"
   const agent = m.agentId ? findAgentById(agents, m.agentId) : null
   return (
@@ -1349,7 +1395,7 @@ function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
           {!isUser && agent?.handle ? <span className="ml-2 font-mono">{agent.handle}</span> : null}
         </div>
         {!isUser && m.dispatch ? (
-            <details className="rounded-lg border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+          <details className="rounded-lg border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
               <summary className="cursor-pointer select-none">
               计划详情
               {m.dispatch.strategy ? `（${m.dispatch.strategy}）` : ""}
@@ -1390,6 +1436,30 @@ function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
         >
           {m.content}
         </div>
+        {!isUser && showPendingActions && pendingAction ? (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Button
+              size="sm"
+              onClick={() => onQuickSend(pendingAction.confirm_text || "确认")}
+              disabled={disabled}
+            >
+              {pendingAction.confirm_text || "确认"}
+            </Button>
+            {pendingAction.cancel_text ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onQuickSend(pendingAction.cancel_text || "取消")}
+                disabled={disabled}
+              >
+                {pendingAction.cancel_text}
+              </Button>
+            ) : null}
+            {pendingAction.title ? (
+              <span className="text-xs text-muted-foreground">{pendingAction.title}</span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {isUser ? (
