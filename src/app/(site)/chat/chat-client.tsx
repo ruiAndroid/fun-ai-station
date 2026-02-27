@@ -828,7 +828,7 @@ export function ChatClient() {
     setMention(null)
     queueMicrotask(() => textareaRef.current?.focus())
 
-    // Let the UI render "正在思考…" first, then switch to orchestration status.
+    // Let the UI render "正在思考…" first, then switch to planning status.
     await Promise.resolve()
     dispatch = { mode: "planning", strategy: "planning", items: [] }
     setConversations((prev) =>
@@ -838,7 +838,7 @@ export function ChatClient() {
           ...c,
           updatedAt: Date.now(),
           messages: c.messages.map((m) =>
-            m.id === pendingId ? { ...m, content: "正在编排…", dispatch: dispatch ?? undefined } : m
+            m.id === pendingId ? { ...m, content: "正在制定计划…", dispatch: dispatch ?? undefined } : m
           ),
         }
       })
@@ -1349,9 +1349,9 @@ function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
           {!isUser && agent?.handle ? <span className="ml-2 font-mono">{agent.handle}</span> : null}
         </div>
         {!isUser && m.dispatch ? (
-          <details className="rounded-lg border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
-            <summary className="cursor-pointer select-none">
-              编排详情
+            <details className="rounded-lg border bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+              <summary className="cursor-pointer select-none">
+              计划详情
               {m.dispatch.strategy ? `（${m.dispatch.strategy}）` : ""}
             </summary>
             <div className="mt-2 space-y-2">
@@ -1372,7 +1372,7 @@ function MessageBubble({ m, agents }: { m: ChatMessage; agents: Agent[] }) {
                   </div>
                 ))
               ) : (
-                <div className="text-muted-foreground">编排中…</div>
+                <div className="text-muted-foreground">计划生成中…</div>
               )}
               {m.dispatch.debug ? (
                 <pre className="max-h-40 overflow-auto rounded-md bg-muted/30 p-2 text-[11px] leading-5">
