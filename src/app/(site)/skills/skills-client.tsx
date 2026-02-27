@@ -5,23 +5,46 @@ import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { apiFetch } from "@/lib/api"
 
 type SkillItem = {
+  code?: string
   name: string
   description: string
   version?: string
 }
 
-const SKILLS: SkillItem[] = []
-
 export function SkillsClient() {
   const [q, setQ] = React.useState("")
+  const [skills, setSkills] = React.useState<SkillItem[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [err, setErr] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const data = await apiFetch<SkillItem[]>("/agent-service/skills")
+        if (!mounted) return
+        setSkills(Array.isArray(data) ? data : [])
+      } catch (e) {
+        if (!mounted) return
+        setErr(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!mounted) return
+        setLoading(false)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const filtered = React.useMemo(() => {
     const query = q.trim().toLowerCase()
-    if (!query) return SKILLS
-    return SKILLS.filter((s) => `${s.name} ${s.description}`.toLowerCase().includes(query))
-  }, [q])
+    if (!query) return skills
+    return skills.filter((s) => `${s.name} ${s.description}`.toLowerCase().includes(query))
+  }, [q, skills])
 
   return (
     <div className="space-y-6">
@@ -49,14 +72,20 @@ export function SkillsClient() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">加载中…</div>
+          ) : err ? (
+            <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+              加载 Skills 失败：{err}
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
               暂无 Skills（后续接入后端后展示）。
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {filtered.map((s) => (
-                <div key={s.name} className="rounded-xl border bg-background p-4">
+                <div key={s.code ?? s.name} className="rounded-xl border bg-background p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">{s.name}</div>
