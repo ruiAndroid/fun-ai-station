@@ -1438,18 +1438,16 @@ function MessageBubble({
         </div>
         {!isUser && showPendingActions && pendingAction ? (
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <Button
-              size="sm"
-              onClick={() => onQuickSend(pendingAction.confirm_text || "确认")}
-              disabled={disabled}
-            >
-              {pendingAction.confirm_text || "确认"}
-            </Button>
+            {pendingAction.confirm_text ? (
+              <Button size="sm" onClick={() => onQuickSend(pendingAction.confirm_text!)} disabled={disabled}>
+                {pendingAction.confirm_text}
+              </Button>
+            ) : null}
             {pendingAction.cancel_text ? (
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => onQuickSend(pendingAction.cancel_text || "取消")}
+                onClick={() => onQuickSend(pendingAction.cancel_text!)}
                 disabled={disabled}
               >
                 {pendingAction.cancel_text}
