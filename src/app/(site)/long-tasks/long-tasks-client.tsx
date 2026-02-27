@@ -236,8 +236,8 @@ export function LongTasksClient() {
                 const canDelete = (t.status || "").toLowerCase() !== "running"
                 return (
                   <div key={t.id} className="rounded-xl border bg-background p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 space-y-1">
+                    <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <div className="truncate text-sm font-medium">{t.title || `Task #${t.id}`}</div>
                           <span
@@ -282,7 +282,7 @@ export function LongTasksClient() {
                         ) : null}
                       </div>
 
-                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                         {canCancel ? (
                           <Button size="sm" variant="outline" className="rounded-xl" onClick={() => cancel(t)}>
                             <XIcon className="size-4" />
@@ -299,8 +299,10 @@ export function LongTasksClient() {
                     </div>
 
                     {t.result && Object.keys(t.result).length ? (
-                      <ScrollArea className="mt-3 h-[160px] rounded-md border">
-                        <pre className="p-2 text-xs">{JSON.stringify(t.result, null, 2)}</pre>
+                      <ScrollArea className="mt-3 h-[160px] max-w-full rounded-md border">
+                        <pre className="max-w-full whitespace-pre-wrap break-words p-2 text-xs">
+                          {JSON.stringify(t.result, null, 2)}
+                        </pre>
                       </ScrollArea>
                     ) : null}
                   </div>
