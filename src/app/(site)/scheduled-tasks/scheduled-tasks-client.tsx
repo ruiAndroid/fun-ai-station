@@ -161,6 +161,21 @@ export function ScheduledTasksClient() {
       return
     }
 
+    if (form.schedule_type === "interval") {
+      const s = form.schedule_expr.trim()
+      let seconds = Number.parseInt(s, 10)
+      const minSeconds = 10
+      if (!Number.isFinite(seconds)) {
+        setError("interval 需要填写整数秒数")
+        return
+      }
+      if (seconds <= 0) seconds = 60
+      if (seconds < minSeconds) {
+        setError(`interval 不能小于 ${minSeconds}s`)
+        return
+      }
+    }
+
     setSaving(true)
     try {
       const nextRunAt =
